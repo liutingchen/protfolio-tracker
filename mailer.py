@@ -1,43 +1,62 @@
-"""Send email via SMTP, with a dev/console fallback.
+"""Send email via Resend (HTTPS API) or SMTP, with a dev/console fallback.
 
-Configure with env vars (any provider that offers SMTP works — Gmail, Resend,
-SendGrid, Mailgun, SES, …):
-    SMTP_HOST       e.g. smtp.gmail.com
-    SMTP_PORT       default 587 (STARTTLS); use 465 for SSL
-    SMTP_USER       login user
-    SMTP_PASSWORD   login password / app password / API key
-    EMAIL_FROM      From address (default = SMTP_USER)
-    SMTP_SSL        "1" to force SSL (port 465)
+Provider order:
+  1. Resend HTTP API  — set RESEND_API_KEY (recommended on Railway/Render/Fly,
+     which block outbound SMTP ports 25/465/587). Sends over HTTPS (443).
+  2. SMTP             — set SMTP_HOST etc. (works on hosts that allow SMTP).
+  3. Console (dev)    — neither configured: print the email + link to the log.
 
-If SMTP_HOST is unset, emails are printed to the server log (dev mode) so the
-verify/reset links are still retrievable without configuring a mail server.
+Env vars:
+    RESEND_API_KEY  Resend API key (re_...)
+    EMAIL_FROM      From address. Resend needs a verified domain, OR use
+                    'onboarding@resend.dev' to send to your own account email.
+    SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_SSL
 """
+import json
 import os
 import smtplib
 import ssl
+import urllib.request
 from email.message import EmailMessage
 
 
 def email_configured():
-    return bool(os.environ.get("SMTP_HOST"))
+    return bool(os.environ.get("RESEND_API_KEY") or os.environ.get("SMTP_HOST"))
 
 
-def send_email(to, subject, text, html=None):
+def _default_sender():
+    return (os.environ.get("EMAIL_FROM") or os.environ.get("SMTP_USER")
+            or "onboarding@resend.dev")
+
+
+def _send_resend(to, subject, text, html):
+    key = os.environ.get("RESEND_API_KEY")
+    payload = {
+        "from": _default_sender(), "to": [to],
+        "subject": subject, "text": text,
+    }
+    if html:
+        payload["html"] = html
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {key}",
+                 "Content-Type": "application/json"},
+        method="POST")
+    with urllib.request.urlopen(req, timeout=20) as r:
+        if r.status not in (200, 201):
+            raise RuntimeError(f"Resend HTTP {r.status}: {r.read()[:200]}")
+    return True
+
+
+def _send_smtp(to, subject, text, html):
     host = os.environ.get("SMTP_HOST")
-    if not host:
-        print("\n" + "=" * 64)
-        print(f"[DEV EMAIL — SMTP not configured]\nTo:      {to}\nSubject: {subject}\n")
-        print(text)
-        print("=" * 64 + "\n", flush=True)
-        return True
-
     port = int(os.environ.get("SMTP_PORT", "587"))
     user = os.environ.get("SMTP_USER")
     password = os.environ.get("SMTP_PASSWORD")
-    sender = os.environ.get("EMAIL_FROM") or user or "no-reply@localhost"
 
     msg = EmailMessage()
-    msg["From"] = sender
+    msg["From"] = _default_sender()
     msg["To"] = to
     msg["Subject"] = subject
     msg.set_content(text)
@@ -57,6 +76,18 @@ def send_email(to, subject, text, html=None):
             if user:
                 s.login(user, password)
             s.send_message(msg)
+    return True
+
+
+def send_email(to, subject, text, html=None):
+    if os.environ.get("RESEND_API_KEY"):
+        return _send_resend(to, subject, text, html)
+    if os.environ.get("SMTP_HOST"):
+        return _send_smtp(to, subject, text, html)
+    print("\n" + "=" * 64)
+    print(f"[DEV EMAIL — no mail provider configured]\nTo:      {to}\nSubject: {subject}\n")
+    print(text)
+    print("=" * 64 + "\n", flush=True)
     return True
 
 

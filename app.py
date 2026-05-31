@@ -10,7 +10,7 @@ import time
 from collections import defaultdict
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, request, session
+from flask import Flask, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
@@ -179,15 +179,6 @@ def _base_url():
     return env.rstrip("/") if env else request.url_root.rstrip("/")
 
 
-def _send_verification_email(uid, email):
-    token = db.create_email_token(uid, "verify", 24 * 3600)
-    link = f"{_base_url()}/verify?token={token}"
-    try:
-        mailer.send_verification(email, link)
-    except Exception as e:
-        app.logger.warning("verification email failed: %s", e)
-
-
 @app.post("/api/auth/register")
 def register():
     if _rate_limited(f"auth:{request.remote_addr or '?'}", 15, 300):
@@ -202,12 +193,12 @@ def register():
     if db.get_user_by_email(email):
         return jsonify({"error": "该邮箱已注册，请直接登录。"}), 409
     uid = db.create_user(email, generate_password_hash(password))
-    _send_verification_email(uid, email)
-    return jsonify({
-        "ok": True, "needs_verification": True,
-        "message": "验证邮件已发送，请查收并点击链接完成验证后再登录。",
-        "dev": not mailer.email_configured(),
-    }), 201
+    db.set_email_verified(uid)  # email verification disabled — accounts are active immediately
+    session.clear()
+    session["uid"] = uid
+    session["csrf"] = secrets.token_hex(16)  # rotate token on auth
+    session.permanent = True
+    return jsonify(_public_user(db.get_user_by_id(uid))), 201
 
 
 @app.post("/api/auth/login")
@@ -220,9 +211,6 @@ def login():
     u = db.get_user_by_email(email)
     if not u or not check_password_hash(u["password_hash"], password):
         return jsonify({"error": "邮箱或密码不正确。"}), 401
-    if not u["email_verified"]:
-        return jsonify({"error": "邮箱尚未验证，请查收验证邮件后再登录。",
-                        "code": "unverified", "email": email}), 403
     session.clear()
     session["uid"] = u["id"]
     session["csrf"] = secrets.token_hex(16)  # rotate token on auth
@@ -246,29 +234,9 @@ def me():
     return jsonify(_public_user(u))
 
 
-@app.get("/verify")
-def verify_email():
-    uid = db.consume_email_token(request.args.get("token", ""), "verify")
-    if uid:
-        db.set_email_verified(uid)
-        return redirect("/?verified=1")
-    return redirect("/?verify_error=1")
-
-
 @app.get("/reset")
 def reset_page():
     return app.send_static_file("index.html")  # SPA reads ?token= and shows the form
-
-
-@app.post("/api/auth/resend-verification")
-def resend_verification():
-    if _rate_limited(f"auth:{request.remote_addr or '?'}", 15, 300):
-        return jsonify({"error": "尝试过于频繁，请稍后再试。"}), 429
-    email = str((request.get_json(force=True, silent=True) or {}).get("email", "")).strip().lower()
-    u = db.get_user_by_email(email)
-    if u and not u["email_verified"]:
-        _send_verification_email(u["id"], email)
-    return jsonify({"ok": True, "message": "如果该邮箱待验证，验证邮件已重新发送。"})
 
 
 @app.post("/api/auth/forgot-password")

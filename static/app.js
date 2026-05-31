@@ -412,7 +412,6 @@ function setAuthMode(mode) {
   $("authSubmit").textContent = mode === "login" ? "登录" : "注册";
   $("auth_password").autocomplete = mode === "login" ? "current-password" : "new-password";
   $("authError").hidden = true;
-  $("resendRow").hidden = true;
   if (authView === "auth") $("authTitle").textContent = mode === "login" ? "登录" : "注册";
 }
 async function doAuth(e) {
@@ -454,16 +453,6 @@ function wireAuth() {
   });
   document.querySelectorAll(".backToLogin").forEach((a) =>
     a.addEventListener("click", (e) => { e.preventDefault(); setAuthView("auth"); setAuthMode("login"); }));
-
-  $("resendLink").addEventListener("click", async (e) => {
-    e.preventDefault();
-    try {
-      const j = await api("POST", "/api/auth/resend-verification",
-        { email: lastAuthEmail || $("auth_email").value.trim() });
-      $("authError").hidden = true;
-      showNote(j.message);
-    } catch (ex) { /* generic — ignore */ }
-  });
 
   $("forgotForm").addEventListener("submit", async (e) => {
     e.preventDefault();
