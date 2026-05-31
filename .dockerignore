@@ -1,0 +1,13 @@
+# Keep the image small and NEVER bake local data/secrets into it.
+.venv/
+data/
+__pycache__/
+*.pyc
+*.pyo
+*.bak
+.git/
+.gitignore
+.dockerignore
+.DS_Store
+*.log
+node_modules/

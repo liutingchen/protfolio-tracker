@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# App data — DB (password hashes!), session secret, backups. NEVER commit.
+data/
+*.bak
+
+# OS / editor
+.DS_Store
+*.log
