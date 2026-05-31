@@ -418,7 +418,7 @@ async function doAuth(e) {
   e.preventDefault();
   const err = $("authError");
   err.hidden = true;
-  $("resendRow").hidden = true;
+  const isNew = authMode === "register";
   lastAuthEmail = $("auth_email").value.trim();
   const body = { email: lastAuthEmail, password: $("auth_password").value };
   try {
@@ -427,20 +427,12 @@ async function doAuth(e) {
       headers: { "Content-Type": "application/json", "X-CSRF-Token": getCookie("csrftoken") },
       body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      if (j.code === "unverified") $("resendRow").hidden = false;
-      throw new Error(j.error || "请求失败");
-    }
-    if (authMode === "register" && j.needs_verification) {
-      $("authForm").reset();
-      setAuthMode("login");
-      showNote(j.message + (j.dev ? "（开发模式：链接已打印到服务器日志）" : ""));
-      return;
-    }
+    if (!r.ok) throw new Error(j.error || "请求失败");
     showApp(j);
     $("authForm").reset();
     await load();
-    showToast("登录成功", true);
+    showToast(isNew ? `欢迎，${j.email}！已为你创建一个空组合，开始记录第一笔交易吧 📈`
+                    : "登录成功", true);
   } catch (ex) { err.textContent = ex.message; err.hidden = false; }
 }
 function wireAuth() {
@@ -533,11 +525,6 @@ async function init() {
     setAuthView("reset");
     showAuth();
     return;                                    // don't auto-login on the reset page
-  }
-  if (params.get("verified") === "1") {
-    pendingNote = "✓ 邮箱已验证，请登录。"; history.replaceState({}, "", "/");
-  } else if (params.get("verify_error") === "1") {
-    pendingNote = "验证链接无效或已过期，登录后可重新发送。"; history.replaceState({}, "", "/");
   }
   try {
     const r = await fetch("/api/auth/me");

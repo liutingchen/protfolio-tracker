@@ -151,30 +151,33 @@ your.domain.com {
 
 **按需再加固**：限流是单进程内存级（多 worker 各自计数，要强限流上 `flask-limiter` + Redis）；邮箱验证 / 找回密码 / 审计日志可按需补充；`data/secret_key`、`data/portfolio.db` 注意备份与权限、别提交版本库。
 
-## 邮件配置（验证邮件 / 忘记密码）
+## 邮件配置（仅用于「忘记密码」）
 
-验证邮件和重置邮件通过 **SMTP** 发送。**不配置时进入「开发模式」**：邮件内容（含链接）只打印到服务器日志——本地能在终端看到，线上能在 `railway logs` 里看到。**真实用户要能收到邮件，必须配 SMTP**，否则别人注册后拿不到验证链接、登不进去。
+重置密码邮件支持两种发送方式，按优先级：**① Resend（HTTPS API，推荐）→ ② SMTP**。都不配则进入**开发模式**：邮件内容（含链接）只打印到日志（本地看终端、线上 `railway logs` 找 `[DEV EMAIL …]`）。
 
-配置这些环境变量（任何提供 SMTP 的服务都行）：
+> ⚠️ **Railway / Render / Fly 等平台默认封禁出站 SMTP 端口（25/465/587）**，所以在这些平台上 **SMTP 发不出去**（日志会报 `[Errno 101] Network is unreachable`）。在 Railway 上请用 **Resend**，它走 HTTPS(443) 不受影响。
+
+### 方式一：Resend（推荐，适用于 Railway）
+
+1. 注册 https://resend.com → API Keys → 创建一个 `re_...` key。
+2. 配置环境变量：
 
 | 变量 | 说明 |
 |------|------|
-| `SMTP_HOST` | 如 `smtp.gmail.com` |
-| `SMTP_PORT` | 默认 `587`（STARTTLS）；SSL 用 `465` |
-| `SMTP_USER` | 登录用户名 |
-| `SMTP_PASSWORD` | 登录密码 / 应用专用密码 / API key |
-| `EMAIL_FROM` | 发件地址（默认 = `SMTP_USER`）|
-| `APP_BASE_URL` | 邮件里链接的域名（线上已设为你的 Railway 域名）|
+| `RESEND_API_KEY` | Resend 的 `re_...` key |
+| `EMAIL_FROM` | 发件地址。未验证域名时用 `onboarding@resend.dev`（只能发到你的 Resend 账户邮箱）；要给任意用户发信需在 Resend 验证自己的域名后用 `noreply@你的域名` |
+| `APP_BASE_URL` | 邮件里链接的域名（线上已设为 Railway 域名）|
 
-**Gmail 示例**：开启两步验证 → 生成「应用专用密码」(App Password) → `SMTP_HOST=smtp.gmail.com`、`SMTP_PORT=587`、`SMTP_USER=你的@gmail.com`、`SMTP_PASSWORD=16位应用专用密码`。
-
-**在 Railway 配置**：项目 → 服务 → Variables，把上面几个加上（保存后会自动重新部署）。或用 CLI：
 ```bash
-railway variables --set "SMTP_HOST=smtp.gmail.com" --set "SMTP_PORT=587" \
-  --set "SMTP_USER=you@gmail.com" --set "SMTP_PASSWORD=xxxxxxxxxxxxxxxx"
+railway variables --set "RESEND_API_KEY=re_xxx" --set "EMAIL_FROM=onboarding@resend.dev"
 ```
 
-> 开发模式下取链接：本地看终端输出；线上跑 `railway logs`，找 `[DEV EMAIL …]` 那段里的链接。
+### 方式二：SMTP（仅限允许出站 SMTP 的环境，如自己的 VPS）
+
+| 变量 | 说明 |
+|------|------|
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` | 标准 SMTP 参数（587 STARTTLS / 465 SSL）|
+| `EMAIL_FROM` | 发件地址（默认 = `SMTP_USER`）|
 
 ## 说明 / 局限
 

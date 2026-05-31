@@ -108,15 +108,6 @@ def _template(title, intro, button_label, link, footer):
     return text, html
 
 
-def send_verification(to, link):
-    text, html = _template(
-        "验证你的邮箱",
-        "感谢注册 Portfolio Tracker！点击下面的按钮验证邮箱，验证后即可登录。",
-        "验证邮箱", link,
-        "如果这不是你本人操作，忽略此邮件即可。链接 24 小时内有效。")
-    return send_email(to, "验证你的 Portfolio Tracker 邮箱", text, html)
-
-
 def send_password_reset(to, link):
     text, html = _template(
         "重置密码",
