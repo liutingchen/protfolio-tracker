@@ -4,8 +4,11 @@ Multi-user: every portfolio belongs to a user; trades belong to portfolios.
 Per-user UI state (active portfolio, view scope, combined-view mode) lives on
 the users row. The price cache is shared across all users.
 """
+import hashlib
 import os
+import secrets
 import sqlite3
+import time
 
 from werkzeug.security import generate_password_hash
 
@@ -25,6 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
     active_portfolio_id INTEGER,
     view_scope          TEXT    NOT NULL DEFAULT 'single',
     all_display_mode    TEXT    NOT NULL DEFAULT 'value',
+    email_verified      INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -66,12 +70,21 @@ CREATE TABLE IF NOT EXISTS price_meta (
     last_fetched TEXT,
     source       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS email_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    kind       TEXT    NOT NULL,          -- 'verify' | 'reset'
+    expires_at INTEGER NOT NULL,          -- epoch seconds
+    used       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
 def get_conn():
     os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -88,6 +101,9 @@ def init_db():
             conn.execute("ALTER TABLE trades ADD COLUMN portfolio_id INTEGER")
         if not _column_exists(conn, "portfolios", "user_id"):
             conn.execute("ALTER TABLE portfolios ADD COLUMN user_id INTEGER")
+        if not _column_exists(conn, "users", "email_verified"):
+            conn.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
+            conn.execute("UPDATE users SET email_verified = 1")  # grandfather existing accounts
         _migrate_orphans(conn)
         conn.commit()
 
@@ -172,8 +188,46 @@ def delete_user(uid):
             "DELETE FROM trades WHERE portfolio_id IN "
             "(SELECT id FROM portfolios WHERE user_id = ?)", (uid,))
         conn.execute("DELETE FROM portfolios WHERE user_id = ?", (uid,))
+        conn.execute("DELETE FROM email_tokens WHERE user_id = ?", (uid,))
         conn.execute("DELETE FROM users WHERE id = ?", (uid,))
         conn.commit()
+
+
+def set_email_verified(uid):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (uid,))
+        conn.commit()
+
+
+# ---- email tokens (verify / reset), stored hashed + single-use --------------
+
+def _hash_token(raw):
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def create_email_token(user_id, kind, ttl_seconds):
+    """Create a single-use token; returns the RAW token to embed in the link."""
+    raw = secrets.token_urlsafe(32)
+    with get_conn() as conn:
+        conn.execute("DELETE FROM email_tokens WHERE user_id = ? AND kind = ?", (user_id, kind))
+        conn.execute(
+            "INSERT INTO email_tokens(token_hash, user_id, kind, expires_at) VALUES (?, ?, ?, ?)",
+            (_hash_token(raw), user_id, kind, int(time.time()) + ttl_seconds))
+        conn.commit()
+    return raw
+
+
+def consume_email_token(raw, kind):
+    """Validate + burn a token. Returns user_id, or None if invalid/expired/used."""
+    th = _hash_token(raw)
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM email_tokens WHERE token_hash = ? AND kind = ?", (th, kind)).fetchone()
+        if not row or row["used"] or row["expires_at"] < int(time.time()):
+            return None
+        conn.execute("UPDATE email_tokens SET used = 1 WHERE token_hash = ?", (th,))
+        conn.commit()
+        return row["user_id"]
 
 
 # ---- per-user UI state -----------------------------------------------------

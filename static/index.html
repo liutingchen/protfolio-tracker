@@ -42,17 +42,39 @@
       <h2 id="authTitle">登录</h2>
       <p class="auth-sub">记录交易与原因 · 生成 MarketSurge 风格组合走势图</p>
       <p id="authNote" class="auth-note" hidden></p>
-      <div class="seg auth-seg" id="authSeg">
-        <button data-auth="login" class="active">登录</button>
-        <button data-auth="register">注册</button>
+      <!-- login / register -->
+      <div id="authMain">
+        <div class="seg auth-seg" id="authSeg">
+          <button data-auth="login" class="active">登录</button>
+          <button data-auth="register">注册</button>
+        </div>
+        <form id="authForm" class="authform">
+          <label>邮箱<input type="email" id="auth_email" autocomplete="username" required placeholder="you@example.com" /></label>
+          <label>密码<input type="password" id="auth_password" autocomplete="current-password" required placeholder="至少 6 位" /></label>
+          <button type="submit" class="btn auth-submit" id="authSubmit">登录</button>
+          <p id="authError" class="error" hidden></p>
+        </form>
+        <p id="resendRow" class="auth-links" hidden><a href="#" id="resendLink">没收到？重新发送验证邮件</a></p>
+        <p class="auth-links"><a href="#" id="forgotLink">忘记密码？</a></p>
+        <p class="auth-demo muted">想先体验？用 <b>demo@demo.com</b> / <b>demo1234</b> 登录看示例。</p>
       </div>
-      <form id="authForm" class="authform">
-        <label>邮箱<input type="email" id="auth_email" autocomplete="username" required placeholder="you@example.com" /></label>
-        <label>密码<input type="password" id="auth_password" autocomplete="current-password" required placeholder="至少 6 位" /></label>
-        <button type="submit" class="btn auth-submit" id="authSubmit">登录</button>
-        <p id="authError" class="error" hidden></p>
+
+      <!-- forgot password -->
+      <form id="forgotForm" class="authform" hidden>
+        <label>邮箱<input type="email" id="forgot_email" required placeholder="you@example.com" /></label>
+        <button type="submit" class="btn auth-submit">发送重置链接</button>
+        <p id="forgotMsg" class="msg" hidden></p>
+        <p class="auth-links"><a href="#" class="backToLogin">← 返回登录</a></p>
       </form>
-      <p class="auth-demo muted">想先体验？用 <b>demo@demo.com</b> / <b>demo1234</b> 登录看示例。</p>
+
+      <!-- reset password (opened from the email link) -->
+      <form id="resetForm" class="authform" hidden>
+        <label>新密码<input type="password" id="reset_pw" required placeholder="至少 6 位" autocomplete="new-password" /></label>
+        <label>确认新密码<input type="password" id="reset_pw2" required autocomplete="new-password" /></label>
+        <button type="submit" class="btn auth-submit">设置新密码</button>
+        <p id="resetMsg" class="msg" hidden></p>
+        <p class="auth-links"><a href="#" class="backToLogin">← 返回登录</a></p>
+      </form>
     </div>
   </div>
 

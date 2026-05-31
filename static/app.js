@@ -372,7 +372,11 @@ function wire() {
 }
 
 // ----- auth -----------------------------------------------------------------
-let authMode = "login";
+let authMode = "login";     // 'login' | 'register'
+let authView = "auth";      // 'auth' | 'forgot' | 'reset'
+let pendingNote = null;     // one-shot note for the auth screen
+let resetToken = "";        // token from a /reset?token= link
+let lastAuthEmail = "";     // remembered for "resend verification"
 
 function showApp(user) {
   state.user = user;
@@ -381,49 +385,110 @@ function showApp(user) {
   $("authedActions").hidden = false;
   $("userEmail").textContent = user.email;
 }
+function showNote(text) {
+  $("authNote").textContent = text;
+  $("authNote").hidden = false;
+}
 function showAuth() {
   $("appMain").hidden = true;
   $("authedActions").hidden = true;
   $("authScreen").hidden = false;
-  const note = sessionStorage.getItem("authNote");
-  if (note) {
-    $("authNote").textContent = note;
-    $("authNote").hidden = false;
-    sessionStorage.removeItem("authNote");
-  }
+  const note = pendingNote || sessionStorage.getItem("authNote");
+  if (note) { showNote(note); pendingNote = null; sessionStorage.removeItem("authNote"); }
+}
+function setAuthView(view) {
+  authView = view;
+  $("authMain").hidden = view !== "auth";
+  $("forgotForm").hidden = view !== "forgot";
+  $("resetForm").hidden = view !== "reset";
+  $("authTitle").textContent =
+    view === "forgot" ? "找回密码" : view === "reset" ? "设置新密码"
+                                   : (authMode === "login" ? "登录" : "注册");
 }
 function setAuthMode(mode) {
   authMode = mode;
   document.querySelectorAll("#authSeg button").forEach((b) =>
     b.classList.toggle("active", b.dataset.auth === mode));
-  $("authTitle").textContent = mode === "login" ? "登录" : "注册";
   $("authSubmit").textContent = mode === "login" ? "登录" : "注册";
   $("auth_password").autocomplete = mode === "login" ? "current-password" : "new-password";
   $("authError").hidden = true;
+  $("resendRow").hidden = true;
+  if (authView === "auth") $("authTitle").textContent = mode === "login" ? "登录" : "注册";
 }
 async function doAuth(e) {
   e.preventDefault();
   const err = $("authError");
-  const body = { email: $("auth_email").value.trim(), password: $("auth_password").value };
+  err.hidden = true;
+  $("resendRow").hidden = true;
+  lastAuthEmail = $("auth_email").value.trim();
+  const body = { email: lastAuthEmail, password: $("auth_password").value };
   try {
     const r = await fetch("/api/auth/" + authMode, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": getCookie("csrftoken") },
       body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || "请求失败");
-    const isNew = authMode === "register";
+    if (!r.ok) {
+      if (j.code === "unverified") $("resendRow").hidden = false;
+      throw new Error(j.error || "请求失败");
+    }
+    if (authMode === "register" && j.needs_verification) {
+      $("authForm").reset();
+      setAuthMode("login");
+      showNote(j.message + (j.dev ? "（开发模式：链接已打印到服务器日志）" : ""));
+      return;
+    }
     showApp(j);
     $("authForm").reset();
     await load();
-    showToast(isNew ? `欢迎，${j.email}！已为你创建一个空组合，开始记录第一笔交易吧 📈`
-                    : "登录成功", true);
+    showToast("登录成功", true);
   } catch (ex) { err.textContent = ex.message; err.hidden = false; }
 }
 function wireAuth() {
   document.querySelectorAll("#authSeg button").forEach((b) =>
     b.addEventListener("click", () => setAuthMode(b.dataset.auth)));
   $("authForm").addEventListener("submit", doAuth);
+
+  $("forgotLink").addEventListener("click", (e) => {
+    e.preventDefault(); $("forgotMsg").hidden = true; setAuthView("forgot");
+  });
+  document.querySelectorAll(".backToLogin").forEach((a) =>
+    a.addEventListener("click", (e) => { e.preventDefault(); setAuthView("auth"); setAuthMode("login"); }));
+
+  $("resendLink").addEventListener("click", async (e) => {
+    e.preventDefault();
+    try {
+      const j = await api("POST", "/api/auth/resend-verification",
+        { email: lastAuthEmail || $("auth_email").value.trim() });
+      $("authError").hidden = true;
+      showNote(j.message);
+    } catch (ex) { /* generic — ignore */ }
+  });
+
+  $("forgotForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = $("forgotMsg");
+    try {
+      const j = await api("POST", "/api/auth/forgot-password", { email: $("forgot_email").value.trim() });
+      msg.textContent = j.message; msg.className = "msg ok"; msg.hidden = false;
+    } catch (ex) { msg.textContent = ex.message; msg.className = "msg err"; msg.hidden = false; }
+  });
+
+  $("resetForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = $("resetMsg");
+    if ($("reset_pw").value !== $("reset_pw2").value) {
+      msg.textContent = "两次输入的新密码不一致。"; msg.className = "msg err"; msg.hidden = false; return;
+    }
+    try {
+      const j = await api("POST", "/api/auth/reset-password",
+        { token: resetToken, new_password: $("reset_pw").value });
+      msg.textContent = j.message + " 正在返回登录…"; msg.className = "msg ok"; msg.hidden = false;
+      history.replaceState({}, "", "/");
+      setTimeout(() => { $("resetForm").reset(); setAuthView("auth"); setAuthMode("login"); }, 1600);
+    } catch (ex) { msg.textContent = ex.message; msg.className = "msg err"; msg.hidden = false; }
+  });
+
   $("logoutBtn").addEventListener("click", async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST", headers: { "X-CSRF-Token": getCookie("csrftoken") } });
@@ -473,6 +538,18 @@ async function init() {
   resetForm();
   wire();
   wireAuth();
+  const params = new URLSearchParams(location.search);
+  if (location.pathname === "/reset") {       // landing from a password-reset email
+    resetToken = params.get("token") || "";
+    setAuthView("reset");
+    showAuth();
+    return;                                    // don't auto-login on the reset page
+  }
+  if (params.get("verified") === "1") {
+    pendingNote = "✓ 邮箱已验证，请登录。"; history.replaceState({}, "", "/");
+  } else if (params.get("verify_error") === "1") {
+    pendingNote = "验证链接无效或已过期，登录后可重新发送。"; history.replaceState({}, "", "/");
+  }
   try {
     const r = await fetch("/api/auth/me");
     if (r.ok) { showApp(await r.json()); await load(); }
