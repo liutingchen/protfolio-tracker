@@ -205,12 +205,42 @@ def _fetch_alphavantage(ticker, start, end):
     return out or None
 
 
+def _fetch_stooq_quote(ticker, start, end):
+    """Stooq's keyless quote CSV — latest close only (one data point).
+
+    The full-history CSV now needs an API key, but this lightweight quote
+    endpoint stays keyless. Good as a last-resort so a holding at least shows a
+    current price even if the history source is down.
+    """
+    sym = ticker.lower()
+    if "." not in sym:
+        sym += ".us"
+    url = f"https://stooq.com/q/l/?s={sym}&f=sd2t2ohlcv&h&e=csv"
+    try:
+        r = requests.get(url, timeout=15, headers={"User-Agent": UA})
+    except Exception:
+        return None
+    if r.status_code != 200 or "Close" not in r.text[:60]:
+        return None
+    try:
+        df = pd.read_csv(io.StringIO(r.text))
+        row = df.iloc[0]
+        d, px = str(row["Date"]), float(row["Close"])
+    except Exception:
+        return None
+    if d in ("N/D", "") or px <= 0 or not (start <= d <= end):
+        return None
+    return {d: px}
+
+
+# Yahoo/yfinance are intentionally NOT used: they are reliably rate-limited from
+# data-center IPs (Railway) and only added latency + noise. stockanalysis is the
+# primary (full history); stooq-quote is a keyless latest-price fallback;
+# Alpha Vantage is used only if ALPHAVANTAGE_API_KEY is set.
 PROVIDERS = [
     ("stockanalysis", _fetch_stockanalysis),
-    ("yfinance", _fetch_yfinance),
-    ("yahoo", _fetch_yahoo_direct),
-    ("stooq", _fetch_stooq),
     ("alphavantage", _fetch_alphavantage),
+    ("stooq_quote", _fetch_stooq_quote),
 ]
 
 
