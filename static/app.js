@@ -82,6 +82,7 @@ function setFormEnabled(enabled) {
     .forEach((id) => { const el = $(id); if (el) el.disabled = !enabled; });
   $("formHint").hidden = enabled;
   $("tradeForm").classList.toggle("disabled", !enabled);
+  $("importBtn").hidden = !enabled;   // import targets the active portfolio
 }
 
 function syncToolbar(ch) {
@@ -368,6 +369,52 @@ function wire() {
     await api("POST", "/api/clear", {});
     resetForm();
     await load();
+  });
+
+  // import-holdings modal
+  const impAddRow = (ticker = "", shares = "", cost = "") => {
+    const div = document.createElement("div");
+    div.className = "imp-row";
+    div.innerHTML =
+      `<input class="imp-ticker" placeholder="AAPL" autocomplete="off" value="${ticker}" />` +
+      `<input class="imp-shares" type="number" min="0" step="any" placeholder="100" value="${shares}" />` +
+      `<input class="imp-cost" type="number" min="0" step="any" placeholder="150.00" value="${cost}" />` +
+      `<button type="button" class="rowbtn del imp-del" title="删除此行">✕</button>`;
+    div.querySelector(".imp-del").addEventListener("click", () => div.remove());
+    $("impRows").appendChild(div);
+  };
+  const openImport = () => {
+    $("imp_date").value = new Date().toISOString().slice(0, 10);
+    $("imp_cash").value = "";
+    $("impRows").innerHTML = "";
+    impAddRow(); impAddRow(); impAddRow();
+    $("importMsg").hidden = true;
+    $("importModal").hidden = false;
+  };
+  const closeImport = () => { $("importModal").hidden = true; };
+  $("importBtn").addEventListener("click", openImport);
+  $("importClose").addEventListener("click", closeImport);
+  $("importCancel").addEventListener("click", closeImport);
+  $("importModal").addEventListener("click", (e) => {
+    if (e.target === $("importModal")) closeImport();
+  });
+  $("impAddRow").addEventListener("click", () => impAddRow());
+  $("importSubmit").addEventListener("click", async () => {
+    const msg = $("importMsg");
+    const holdings = [];
+    document.querySelectorAll("#impRows .imp-row").forEach((row) => {
+      const ticker = row.querySelector(".imp-ticker").value.trim();
+      const shares = row.querySelector(".imp-shares").value;
+      const avg_cost = row.querySelector(".imp-cost").value;
+      if (ticker || shares || avg_cost) holdings.push({ ticker, shares, avg_cost });
+    });
+    const body = { date: $("imp_date").value, cash: $("imp_cash").value || 0, holdings };
+    try {
+      const j = await api("POST", "/api/import-holdings", body);
+      closeImport();
+      await load();
+      showToast(`已导入：${j.added} 个持仓${body.cash > 0 ? " + 现金" : ""} ✓`, true);
+    } catch (ex) { msg.textContent = ex.message; msg.className = "msg err"; msg.hidden = false; }
   });
 }
 

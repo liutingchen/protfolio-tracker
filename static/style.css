@@ -82,6 +82,15 @@ body {
 .msg.ok { color: var(--green); }
 .msg.err { color: var(--red); }
 
+/* import-holdings rows */
+.imp-head, .imp-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr 28px; gap: 8px; align-items: center; }
+.imp-head { margin-bottom: 6px; }
+.imp-head span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
+.imp-row { margin-bottom: 8px; }
+.imp-row input { width: 100%; }
+.imp-del { color: var(--muted); }
+.imp-del:hover { color: var(--red); }
+
 /* toast */
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 300;
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);

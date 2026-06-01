@@ -119,7 +119,10 @@
   <div class="grid">
     <!-- add / edit trade -->
     <section class="card">
-      <h2 id="formTitle">添加交易</h2>
+      <div class="card-head">
+        <h2 id="formTitle">添加交易</h2>
+        <button type="button" id="importBtn" class="btn ghost small">⇪ 导入持仓</button>
+      </div>
       <p id="formHint" class="muted scope-hint" hidden>合并视图为只读。切换到某个具体组合即可添加 / 编辑交易。</p>
       <form id="tradeForm" class="tradeform">
         <input type="hidden" id="tradeId" />
@@ -194,6 +197,32 @@
       <h3 class="modal-sec danger-title">危险操作</h3>
       <p class="muted">删除账号会永久删除你的全部组合与交易记录，无法恢复。</p>
       <button id="deleteAccountBtn" class="btn danger ghost">删除我的账号…</button>
+    </div>
+  </div>
+
+  <!-- import current holdings modal -->
+  <div id="importModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>导入当前持仓</h2>
+        <button id="importClose" class="rowbtn" title="关闭">✕</button>
+      </div>
+      <p class="muted">把你现在的现金和已持有的仓位录入本组合：按「截至日期」为每个持仓生成一笔建仓买入，并把现金 + 持仓成本计入账户本金。可重复使用（相当于追加一批资金和仓位）。</p>
+      <div class="row">
+        <label>截至日期<input type="date" id="imp_date" /></label>
+        <label>现金 $<input type="number" id="imp_cash" min="0" step="any" placeholder="0" /></label>
+      </div>
+      <h3 class="modal-sec">持仓（不持股可留空，只导入现金）</h3>
+      <div class="imp-head">
+        <span>代码</span><span>股数</span><span>平均成本 $</span><span></span>
+      </div>
+      <div id="impRows"></div>
+      <button type="button" id="impAddRow" class="btn ghost small">＋ 添加一行</button>
+      <div class="form-actions" style="margin-top:18px">
+        <button type="button" id="importSubmit" class="btn">导入</button>
+        <button type="button" id="importCancel" class="btn ghost">取消</button>
+      </div>
+      <p id="importMsg" class="msg" hidden></p>
     </div>
   </div>
 

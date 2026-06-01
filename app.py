@@ -416,6 +416,76 @@ def create_trade():
     return jsonify({"id": tid, "trade": trade}), 201
 
 
+@app.post("/api/import-holdings")
+@login_required
+def import_holdings():
+    """Import current cash + existing positions into the active portfolio.
+
+    For each holding we add an opening 'buy' at its average cost on `date`, and
+    we raise starting_capital by (cash + total cost basis) — i.e. the money
+    deposited — so that after the opening buys, cash == the entered cash.
+    """
+    if _scope() == "all":
+        return jsonify({"error": "合并视图下不能导入，请切换到具体组合。"}), 400
+    data = request.get_json(force=True, silent=True) or {}
+
+    try:
+        cash = float(data.get("cash", 0) or 0)
+    except (ValueError, TypeError):
+        return jsonify({"error": "现金必须是数字。"}), 400
+    if cash < 0:
+        return jsonify({"error": "现金不能为负。"}), 400
+
+    date = str(data.get("date", "")).strip()
+    try:
+        dt.date.fromisoformat(date)
+    except ValueError:
+        return jsonify({"error": "请填写有效的截至日期。"}), 400
+
+    raw = data.get("holdings") or []
+    if not isinstance(raw, list):
+        return jsonify({"error": "持仓格式不正确。"}), 400
+
+    holdings, cost_basis = [], 0.0
+    for i, h in enumerate(raw):
+        if not isinstance(h, dict):
+            return jsonify({"error": f"第 {i + 1} 行持仓格式无效。"}), 400
+        ticker = str(h.get("ticker", "")).strip().upper()
+        if not ticker:
+            continue  # skip blank rows
+        try:
+            shares = float(h.get("shares"))
+            avg_cost = float(h.get("avg_cost"))
+        except (ValueError, TypeError):
+            return jsonify({"error": f"{ticker}: 股数和成本价必须是数字。"}), 400
+        if shares <= 0:
+            return jsonify({"error": f"{ticker}: 股数必须大于 0。"}), 400
+        if avg_cost < 0:
+            return jsonify({"error": f"{ticker}: 成本价不能为负。"}), 400
+        reason = str(h.get("reason", "") or "").strip() or "导入持仓"
+        holdings.append({"ticker": ticker, "shares": shares,
+                         "avg_cost": avg_cost, "reason": reason})
+        cost_basis += shares * avg_cost
+
+    if cash <= 0 and not holdings:
+        return jsonify({"error": "请至少填写现金或一个持仓。"}), 400
+
+    active = db.get_active_portfolio_id(_uid())
+    p = db.get_portfolio(active, _uid())
+    if not p:
+        return jsonify({"error": "没有可用的组合。"}), 400
+
+    for h in holdings:
+        db.add_trade({"date": date, "ticker": h["ticker"], "side": "buy",
+                      "shares": h["shares"], "price": h["avg_cost"],
+                      "fees": 0.0, "reason": h["reason"]}, active)
+
+    new_cap = float(p["starting_capital"] or 0) + cash + cost_basis
+    db.update_portfolio(active, {"starting_capital": new_cap}, _uid())
+    return jsonify({"ok": True, "added": len(holdings),
+                    "starting_capital": new_cap}), 201
+
+
 @app.put("/api/trades/<int:trade_id>")
 @login_required
 def edit_trade(trade_id):
