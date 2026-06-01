@@ -112,6 +112,7 @@ function syncToolbar(ch) {
   $("capitalInput").disabled = state.isAll;   // sum is read-only in combined view
   $("capitalSave").disabled = state.isAll;
   $("clearBtn").hidden = state.isAll || state.trades.length === 0;
+  $("exportBtn").hidden = state.trades.length === 0;   // export works in any view
 }
 
 function renderStats(t, ch) {
@@ -325,6 +326,39 @@ function renderTradeLog(trades) {
         <button class="rowbtn del" onclick="deleteTrade(${t.id})">🗑</button>
       </td>`}
     </tr>`).join("") + `</tbody></table>`;
+}
+
+function csvCell(v) {
+  // quote if it contains comma/quote/newline; double internal quotes
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function exportTradesCsv() {
+  const trades = state.trades || [];
+  if (!trades.length) { showToast("没有交易记录可导出。", false); return; }
+  const isAll = state.isAll;
+  const header = ["Date", "Ticker", "Side", "Shares", "Price", "Fees", "Reason"];
+  if (isAll) header.splice(1, 0, "Portfolio");
+  const lines = [header.join(",")];
+  // chronological (oldest first) for a clean ledger
+  [...trades].forEach((t) => {
+    const row = [t.date,
+      ...(isAll ? [t.portfolio_name || ""] : []),
+      t.ticker, t.side, t.shares, t.price, t.fees || 0, t.reason || ""];
+    lines.push(row.map(csvCell).join(","));
+  });
+  // BOM so Excel opens UTF-8 (Chinese reasons) correctly
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const name = (state.data && state.data.portfolio && state.data.portfolio.name) || "portfolio";
+  const today = new Date().toISOString().slice(0, 10);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `trades_${name}_${today}.csv`.replace(/[\/\\:*?"<>|]+/g, "-");
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  showToast(`已导出 ${trades.length} 笔交易 ✓`, true);
 }
 
 function renderWarnings(ch) {
@@ -615,6 +649,8 @@ function wire() {
     resetForm();
     await load();
   });
+
+  $("exportBtn").addEventListener("click", exportTradesCsv);
 
   // import-holdings modal
   const impAddRow = (ticker = "", shares = "", cost = "") => {
