@@ -17,4 +17,7 @@ ENV DATA_DIR=/data
 EXPOSE 8080
 
 # Railway/most platforms inject $PORT; default to 8080 locally.
-CMD ["sh", "-c", "gunicorn --preload --workers 1 --threads 8 -k gthread --bind 0.0.0.0:${PORT:-8080} app:app"]
+# --timeout 120: price refresh can take a while; don't let gunicorn kill it at
+# the default 30s (which left the UI stuck on "刷新中…"). 2 workers so one slow
+# request can't make the whole app unresponsive.
+CMD ["sh", "-c", "gunicorn --preload --workers 2 --threads 8 --timeout 120 -k gthread --bind 0.0.0.0:${PORT:-8080} app:app"]

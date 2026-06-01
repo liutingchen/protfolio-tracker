@@ -430,8 +430,28 @@ function wire() {
   $("refreshBtn").addEventListener("click", async () => {
     const b = $("refreshBtn"); const old = b.textContent;
     b.textContent = "刷新中…"; b.disabled = true;
-    try { await api("POST", "/api/refresh-prices", {}); await load(); }
-    finally { b.textContent = old; b.disabled = false; }
+    // hard client-side cap so the button always recovers, even if the request
+    // stalls; whatever got fetched server-side is shown on the subsequent load.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90000);
+    try {
+      const r = await fetch("/api/refresh-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": getCookie("csrftoken") },
+        body: "{}", signal: ctrl.signal });
+      const j = await r.json().catch(() => ({}));
+      if (j && j.failed && j.failed.length) {
+        showToast("以下代码暂未取到价格，可稍后再试：" + j.failed.join(", "), false);
+      } else {
+        showToast("股价已刷新 ✓", true);
+      }
+    } catch (ex) {
+      showToast("刷新超时，已取到的价格将显示；可稍后再试一次。", false);
+    } finally {
+      clearTimeout(timer);
+      b.textContent = old; b.disabled = false;
+      try { await load(); } catch (e) { /* load has its own error handling */ }
+    }
   });
 
   $("seedBtn").addEventListener("click", async () => {
