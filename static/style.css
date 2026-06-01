@@ -225,3 +225,78 @@ textarea { resize: vertical; }
 .empty-mini { color: var(--muted); padding: 14px 4px; }
 
 .foot { text-align: center; color: var(--muted); font-size: 11.5px; padding: 10px; }
+
+/* On touch devices the edit pencil can't rely on hover — always show it. */
+@media (hover: none) {
+  .edit-pencil { opacity: 1; }
+}
+
+/* ----------------------------------------------------------------------- */
+/*  Mobile / narrow screens                                                */
+/* ----------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  body { font-size: 13.5px; -webkit-text-size-adjust: 100%; }
+
+  /* header: brand on top, actions wrap below */
+  .header { flex-direction: column; align-items: stretch; gap: 12px; padding: 12px 14px; }
+  .brand { gap: 10px; }
+  .logo { font-size: 24px; }
+  .header h1 { font-size: 17px; }
+  .sub { display: none; }                 /* long subtitle is clutter on phones */
+  .header-actions, .authed-actions { width: 100%; gap: 8px; }
+  .authed-actions { flex-direction: column; align-items: stretch; }
+  .pf-switch { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+  .pf-select { flex: 1; min-width: 0; max-width: none; }
+  #refreshBtn { width: 100%; }
+  .userbox { width: 100%; justify-content: space-between; }
+  .user-email { max-width: none; flex: 1; }
+
+  /* stats: clean 2-column grid */
+  .statsbar { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; }
+  .stat { padding: 10px 12px; }
+  .stat .v { font-size: 17px; }
+  .stat-editable { position: relative; }   /* tappable, pencil always shown via hover:none */
+
+  /* toolbar: each control group on its own line, full width */
+  .toolbar { gap: 10px; padding: 10px 14px; }
+  .seg { flex: 1; }
+  .seg button { flex: 1; padding: 8px 6px; }   /* bigger tap targets */
+  #freqSeg, #modeSeg { width: 100%; }
+  .chk { font-size: 13px; }
+  .cap { margin-left: 0; width: 100%; justify-content: space-between; }
+  .cap input { flex: 1; width: auto; }
+
+  /* chart: shorter so it doesn't dominate the screen */
+  #chart { height: 320px; }
+  .databox { font-size: 10.5px; min-width: 150px; padding: 6px 8px; top: 6px; left: 6px; }
+
+  /* layout padding */
+  section.card { margin: 0 12px 12px; padding: 14px 14px; }
+  .grid { padding: 12px; gap: 12px; }
+  .warnbox { padding: 9px 14px; }
+
+  /* trade form: stack the two-up rows */
+  .tradeform .row { flex-direction: column; gap: 0; }
+
+  /* tables: compact + let trade log scroll sideways instead of squishing */
+  .holdings th, .holdings td, .tradelog th, .tradelog td { padding: 7px 5px; font-size: 12px; }
+  .tradelog { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tradelog table { min-width: 540px; }    /* horizontal scroll keeps columns legible */
+  .reasoncell { max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* modals: full-width sheets */
+  .modal { padding: 0; align-items: flex-end; }
+  .modal-card { max-width: 100%; width: 100%; border-radius: 14px 14px 0 0; max-height: 92vh; }
+  .auth-card { padding: 26px 20px; }
+
+  /* import-holdings rows: keep usable on narrow screens */
+  .imp-head, .imp-row { grid-template-columns: 1.1fr 0.9fr 0.9fr 26px; gap: 6px; }
+  .imp-head span { font-size: 10px; }
+}
+
+/* very small phones */
+@media (max-width: 380px) {
+  .statsbar { grid-template-columns: 1fr 1fr; }
+  .stat .v { font-size: 16px; }
+  .header h1 { font-size: 16px; }
+}
