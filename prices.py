@@ -248,9 +248,17 @@ PROVIDERS = [
 ]
 
 
+def _f(v):
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _fetch_quote(ticker):
-    """Real-time (intraday) quote for one ticker. Returns (price, asof_date) or
-    (None, None). Uses stockanalysis' quotes API (`p` = live price)."""
+    """Real-time (intraday) quote for one ticker. Returns (bar, asof_date) or
+    (None, None), where bar = {close, open, high, low, volume} for the current
+    session (`p` = live price, `o/h/l/v` = today's intraday range/volume)."""
     for kind in ("s", "e"):
         url = f"https://stockanalysis.com/api/quotes/{kind}/{ticker}"
         try:
@@ -265,32 +273,32 @@ def _fetch_quote(ticker):
             if r.status_code != 200:
                 continue
             d = (r.json() or {}).get("data") or {}
-            px = d.get("p")
-            if px is None or float(px) <= 0:
+            px = _f(d.get("p"))
+            if px is None or px <= 0:
                 continue
-            # timestamp (ms) -> date; fall back to today if absent
+            bar = {"close": px, "open": _f(d.get("o")), "high": _f(d.get("h")),
+                   "low": _f(d.get("l")), "volume": _f(d.get("v"))}
             ts = d.get("ts")
             asof = (dt.datetime.utcfromtimestamp(float(ts) / 1000).strftime("%Y-%m-%d")
                     if ts else None)
-            return float(px), asof
+            return bar, asof
         except Exception:
             continue
     return None, None
 
 
 def get_quotes(tickers, today):
-    """Fetch live prices and upsert each into the cache dated `today` so the
-    valuation picks them up as the latest point. Returns {ticker: price}."""
+    """Fetch live intraday bars (price + today's O/H/L/V) and upsert each into
+    the cache dated `today` so the valuation and weekly chart pick them up as
+    the latest, complete bar. Returns {ticker: price}."""
     out = {}
     for t in tickers:
         t = t.upper()
-        px, asof = _fetch_quote(t)
-        if px is not None:
-            # store under today's date (or the quote's own date if it's newer
-            # than today, which shouldn't happen but is harmless)
+        bar, asof = _fetch_quote(t)
+        if bar is not None:
             day = max(today, asof) if asof else today
-            db.store_prices(t, {day: px}, "stockanalysis-quote")
-            out[t] = px
+            db.store_prices(t, {day: bar}, "stockanalysis-quote")
+            out[t] = bar["close"]
     return out
 
 
