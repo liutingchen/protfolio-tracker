@@ -165,7 +165,7 @@ function renderHoldings(holdings) {
     holdings.map((h) => {
       const c = (h.unrealized || 0) >= 0 ? "pos" : "neg";
       return `<tr>
-        <td class="tickercell tickerlink" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} 周线图">${h.ticker}</td>
+        <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
         <td>${h.shares}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
         <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}</td>
