@@ -44,6 +44,59 @@ def _align(ts: pd.Timestamp, index: pd.DatetimeIndex):
     return index[pos]
 
 
+def compute_stock(ticker, uid):
+    """Weekly candle chart for ONE stock: OHLC (from daily closes) + 10/40-week
+    SMA + the user's own buy/sell markers on that ticker. Used by the holding
+    detail view. `uid` scopes the trade markers to the current user."""
+    ticker = (ticker or "").upper()
+    cached = db.get_cached_prices(ticker)
+    if not cached:
+        return {"ticker": ticker, "has_data": False,
+                "candles": [], "ma10": [], "ma40": [], "markers": []}
+
+    s = pd.Series(cached, dtype="float64")
+    s.index = pd.to_datetime(s.index)
+    s = s.sort_index()
+
+    # daily closes -> weekly OHLC (open=first, high=max, low=min, close=last)
+    w = s.resample("W-FRI")
+    wk = pd.DataFrame({"open": w.first(), "high": w.max(),
+                       "low": w.min(), "close": w.last()}).dropna(how="all")
+    candles = [{
+        "time": ts.strftime("%Y-%m-%d"),
+        "open": _round(r["open"]), "high": _round(r["high"]),
+        "low": _round(r["low"]), "close": _round(r["close"]),
+    } for ts, r in wk.iterrows() if not math.isnan(r["close"])]
+    ma10 = _series_to_points(wk["close"].rolling(10, min_periods=10).mean())
+    ma40 = _series_to_points(wk["close"].rolling(40, min_periods=40).mean())
+
+    # the user's own trades on this ticker, snapped onto weekly bars
+    weekly_index = pd.DatetimeIndex(wk.index)
+    markers = []
+    for pf in db.list_portfolios(uid):
+        for t in db.list_trades(pf["id"]):
+            if t["ticker"].upper() != ticker:
+                continue
+            is_buy = t["side"] == "buy"
+            bar = _align(pd.to_datetime(t["date"]), weekly_index)
+            markers.append({
+                "time": bar.strftime("%Y-%m-%d"),
+                "position": "belowBar" if is_buy else "aboveBar",
+                "color": "#26a69a" if is_buy else "#ef5350",
+                "shape": "arrowUp" if is_buy else "arrowDown",
+                "text": f"{'B' if is_buy else 'S'} {_round(t['shares'], 2)}@{_round(t['price'], 2)}",
+            })
+    markers.sort(key=lambda m: m["time"])
+
+    last_close = _round(float(s.iloc[-1]))
+    return {
+        "ticker": ticker, "has_data": bool(candles),
+        "last": last_close,
+        "asof": s.index.max().strftime("%Y-%m-%d"),
+        "candles": candles, "ma10": ma10, "ma40": ma40, "markers": markers,
+    }
+
+
 def _empty(settings, pinfo=None):
     return {
         "has_data": False,

@@ -228,6 +228,23 @@
     </div>
   </div>
 
+  <!-- single-stock weekly chart modal -->
+  <div id="stockModal" class="modal" hidden>
+    <div class="modal-card stock-card">
+      <div class="modal-head">
+        <h2><span id="stockTitle">—</span> <span id="stockMeta" class="stock-meta"></span></h2>
+        <button id="stockClose" class="rowbtn" title="关闭">✕</button>
+      </div>
+      <div class="stock-legend">
+        <span class="lg lg-candle">周K线</span>
+        <span class="lg"><span class="dot" style="background:#2962ff"></span>10周均线</span>
+        <span class="lg"><span class="dot" style="background:#ff9800"></span>40周均线</span>
+      </div>
+      <div id="stockChart"><div id="stockBox" class="databox stock-databox" hidden></div></div>
+      <p id="stockEmpty" class="muted" hidden>暂无该股票的价格数据，试试先点「↻ 刷新股价」。</p>
+    </div>
+  </div>
+
   <div id="toast" class="toast" hidden></div>
 
   <script src="app.js"></script>

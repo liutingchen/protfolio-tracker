@@ -398,6 +398,13 @@ def get_chart():
                    else portfolio.compute(db.get_active_portfolio_id(uid), uid))
 
 
+@app.get("/api/stock/<ticker>")
+@login_required
+def get_stock(ticker):
+    """Weekly candle + 10/40-week SMA for a single stock (holding detail view)."""
+    return jsonify(portfolio.compute_stock(ticker, _uid()))
+
+
 @app.post("/api/set-cash")
 @login_required
 def set_cash():

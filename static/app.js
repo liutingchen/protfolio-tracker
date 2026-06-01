@@ -165,7 +165,7 @@ function renderHoldings(holdings) {
     holdings.map((h) => {
       const c = (h.unrealized || 0) >= 0 ? "pos" : "neg";
       return `<tr>
-        <td class="tickercell">${h.ticker}</td>
+        <td class="tickercell tickerlink" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} 周线图">${h.ticker}</td>
         <td>${h.shares}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
         <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}</td>
@@ -173,6 +173,92 @@ function renderHoldings(holdings) {
         <td class="${c}">${signMoney(h.unrealized)} <span class="muted">(${signPct(h.unrealized_pct)})</span></td>
       </tr>`;
     }).join("") + `</tbody></table>`;
+}
+
+// ----- single-stock weekly chart ------------------------------------------
+let stockChart = null;
+window.openStock = async function (ticker) {
+  $("stockTitle").textContent = ticker;
+  $("stockMeta").textContent = "加载中…";
+  $("stockEmpty").hidden = true;
+  $("stockBox").hidden = true;
+  $("stockModal").hidden = false;
+  try {
+    const d = await api("GET", "/api/stock/" + encodeURIComponent(ticker));
+    if (!d.has_data) {
+      $("stockMeta").textContent = "";
+      $("stockEmpty").hidden = false;
+      renderStockChart(null);
+      return;
+    }
+    $("stockMeta").textContent = `$${nf.format(d.last)} · 截至 ${d.asof}`;
+    renderStockChart(d);
+  } catch (ex) {
+    $("stockMeta").textContent = "";
+    $("stockEmpty").textContent = "加载失败：" + ex.message;
+    $("stockEmpty").hidden = false;
+  }
+};
+
+function renderStockChart(d) {
+  const host = $("stockChart");
+  if (stockChart) { stockChart.remove(); stockChart = null; }
+  if (!d || !d.candles.length) return;
+  stockChart = LightweightCharts.createChart(host, {
+    autoSize: true,
+    layout: { background: { color: "#0b0e11" }, textColor: "#d1d4dc", fontSize: 12 },
+    grid: { vertLines: { color: "#1c2127" }, horzLines: { color: "#1c2127" } },
+    rightPriceScale: { borderColor: "#2a2f36" },
+    timeScale: { borderColor: "#2a2f36", rightOffset: 4 },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  });
+  const candle = stockChart.addCandlestickSeries({
+    upColor: "#26a69a", downColor: "#ef5350", borderUpColor: "#26a69a",
+    borderDownColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350",
+  });
+  candle.setData(d.candles);
+  if (d.ma10 && d.ma10.length) {
+    const s = stockChart.addLineSeries({ color: "#2962ff", lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false });
+    s.setData(d.ma10);
+  }
+  if (d.ma40 && d.ma40.length) {
+    const s = stockChart.addLineSeries({ color: "#ff9800", lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false });
+    s.setData(d.ma40);
+  }
+  if (d.markers && d.markers.length) candle.setMarkers(d.markers);
+  setupStockBox(host, d);
+  stockChart.timeScale().fitContent();
+}
+
+function setupStockBox(host, d) {
+  const box = $("stockBox");
+  const bars = {}; d.candles.forEach((b) => { bars[b.time] = b; });
+  const ma10 = {}; d.ma10.forEach((p) => { ma10[p.time] = p.value; });
+  const ma40 = {}; d.ma40.forEach((p) => { ma40[p.time] = p.value; });
+  const times = d.candles.map((b) => b.time);
+  const prevClose = {}; let pc = null;
+  times.forEach((t) => { prevClose[t] = pc; pc = bars[t].close; });
+  const fmt = (v) => (v == null ? "—" : "$" + nf.format(v));
+  const render = (time) => {
+    const b = bars[time]; if (!b) { box.hidden = true; return; }
+    const pcv = prevClose[time];
+    const chgPct = (pcv != null && pcv !== 0) ? ((b.close - pcv) / pcv * 100) : null;
+    const cls = chgPct == null ? "" : (chgPct >= 0 ? "pos" : "neg");
+    const row = (k, v, kc, vc) =>
+      `<div class="db-row"><span class="db-k" ${kc ? `style="color:${kc}"` : ""}>${k}</span><span class="db-v ${vc || ""}">${v}</span></div>`;
+    box.innerHTML = row("Date", time) + row("Open", fmt(b.open)) + row("High", fmt(b.high)) +
+      row("Low", fmt(b.low)) + row("Close", fmt(b.close)) +
+      row("% Chg", chgPct == null ? "—" : (chgPct >= 0 ? "+" : "") + nf.format(chgPct) + "%", null, cls) +
+      `<div class="db-sep"></div>` + row("SMA(10)", fmt(ma10[time]), "#2962ff") +
+      row("SMA(40)", fmt(ma40[time]), "#ff9800");
+    box.hidden = false;
+  };
+  const latest = times[times.length - 1];
+  if (latest) render(latest);
+  stockChart.subscribeCrosshairMove((param) => {
+    const key = timeToStr(param.time);
+    if (key && bars[key]) render(key); else if (latest) render(latest);
+  });
 }
 
 function renderTradeLog(trades) {
@@ -517,6 +603,17 @@ function wire() {
   $("importModal").addEventListener("click", (e) => {
     if (e.target === $("importModal")) closeImport();
   });
+
+  // single-stock chart modal
+  const closeStock = () => {
+    $("stockModal").hidden = true;
+    if (stockChart) { stockChart.remove(); stockChart = null; }
+  };
+  $("stockClose").addEventListener("click", closeStock);
+  $("stockModal").addEventListener("click", (e) => {
+    if (e.target === $("stockModal")) closeStock();
+  });
+
   $("impAddRow").addEventListener("click", () => impAddRow());
   $("importSubmit").addEventListener("click", async () => {
     const msg = $("importMsg");
