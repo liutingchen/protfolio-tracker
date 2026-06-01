@@ -176,9 +176,16 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         shares_daily = (cum.reindex(cum.index.union(daily_index)).ffill()
                         .reindex(daily_index).fillna(0.0))
         if t in price_series:
-            p_daily = price_series[t].reindex(daily_index).ffill().bfill()
-            if p_daily.notna().any():
-                price_today[t] = float(p_daily.dropna().iloc[-1])
+            # latest known close — independent of the valuation calendar, so a
+            # holding still values correctly when its trade date is newer than
+            # the most recent available close (e.g. bought today, pre-close).
+            price_today[t] = float(price_series[t].dropna().iloc[-1])
+            # align prices onto the calendar; ffill carries the last close
+            # forward (covers a trade date past the latest close), bfill covers
+            # any leading gap before the first close.
+            p_daily = price_series[t].reindex(
+                price_series[t].index.union(daily_index)).ffill().bfill()
+            p_daily = p_daily.reindex(daily_index)
         else:
             p_daily = pd.Series(float("nan"), index=daily_index)
         holdings_mv = holdings_mv.add((shares_daily * p_daily).fillna(0.0),
