@@ -13,6 +13,7 @@ STOOQ_API_KEY and it will be used automatically.
 import datetime as dt
 import io
 import os
+import threading
 import time
 
 import pandas as pd
@@ -22,6 +23,14 @@ import db
 
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+
+# Serialize outbound price fetches across all gunicorn threads. With 8 threads
+# each fetching a batch of tickers, hitting the source concurrently trips its
+# rate limiting (empty/429 responses). A global lock + small spacing makes the
+# requests queue politely instead, which is reliable and still fast enough.
+_FETCH_LOCK = threading.Lock()
+_MIN_SPACING_S = 0.15
+_last_fetch_at = [0.0]
 
 
 # --------------------------------------------------------------------------- #
@@ -235,14 +244,23 @@ FETCH_BUDGET_S = float(os.environ.get("PRICE_FETCH_BUDGET", "12"))
 
 
 def _fetch_one(ticker, start, end):
-    for name, fn in PROVIDERS:
+    # One outbound fetch at a time across all threads, with light spacing, so
+    # concurrent chart requests don't burst the source into rate-limiting.
+    with _FETCH_LOCK:
+        gap = _MIN_SPACING_S - (time.monotonic() - _last_fetch_at[0])
+        if gap > 0:
+            time.sleep(gap)
         try:
-            fetched = fn(ticker, start, end)
-        except Exception:
-            fetched = None
-        if fetched:
-            return fetched, name
-    return None, None
+            for name, fn in PROVIDERS:
+                try:
+                    fetched = fn(ticker, start, end)
+                except Exception:
+                    fetched = None
+                if fetched:
+                    return fetched, name
+            return None, None
+        finally:
+            _last_fetch_at[0] = time.monotonic()
 
 
 def get_daily_closes(tickers, start, end, force=False, budget=None):
