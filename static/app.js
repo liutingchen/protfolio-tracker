@@ -49,21 +49,35 @@ function showToast(msg, ok) {
 
 // ----- load + render --------------------------------------------------------
 async function load() {
-  const [st, ch] = await Promise.all([api("GET", "/api/state"), api("GET", "/api/chart")]);
+  // Fetch state and chart independently so a slow/failed chart never blanks
+  // the whole page (trades, holdings, portfolio switch still render).
+  const [stRes, chRes] = await Promise.allSettled([
+    api("GET", "/api/state"), api("GET", "/api/chart")]);
+
+  if (stRes.status !== "fulfilled") throw stRes.reason;  // state is essential
+  const st = stRes.value;
   state.trades = st.trades;
   state.settings = st.settings;
   state.portfolios = st.portfolios || [];
   state.activeId = st.active_id;
   state.isAll = st.active_id === "all";
-  state.data = ch;
   renderPortfolioSwitch();
   setFormEnabled(!state.isAll);
-  syncToolbar(ch);
-  renderStats(ch.stats && ch.stats.totals, ch);
-  renderHoldings((ch.stats && ch.stats.holdings) || []);
   renderTradeLog(st.trades);
-  renderWarnings(ch);
-  renderChart(ch, state.freq);
+
+  if (chRes.status === "fulfilled") {
+    const ch = chRes.value;
+    state.data = ch;
+    syncToolbar(ch);
+    renderStats(ch.stats && ch.stats.totals, ch);
+    renderHoldings((ch.stats && ch.stats.holdings) || []);
+    renderWarnings(ch);
+    renderChart(ch, state.freq);
+  } else {
+    // chart failed (e.g. price source slow): keep the rest usable
+    $("warnBox").hidden = false;
+    $("warnBox").textContent = "⚠ 走势图加载较慢或失败（股价源繁忙）。交易记录已显示；可稍后点「↻ 刷新股价」重试。";
+  }
 }
 
 function renderPortfolioSwitch() {

@@ -211,31 +211,58 @@ def _needs_refetch(cached, start, end):
     return False
 
 
-def get_daily_closes(tickers, start, end, force=False):
-    """Return ({ticker: pd.Series indexed by Timestamp}, {ticker: error_msg})."""
-    result, errors = {}, {}
-    for t in tickers:
-        t = t.upper()
-        cached = db.get_cached_prices(t)
-        if force or _needs_refetch(cached, start, end):
-            fetched, source = None, None
-            for name, fn in PROVIDERS:
-                try:
-                    fetched = fn(t, start, end)
-                except Exception:
-                    fetched = None
-                if fetched:
-                    source = name
-                    break
-            if fetched:
-                db.store_prices(t, fetched, source)
-                cached = db.get_cached_prices(t)
+# Wall-clock budget (seconds) for fetching within a single chart request, so a
+# slow/blocked source can never hang the page. Once exceeded, remaining tickers
+# are served from cache (even if stale); 刷新股价 / a later load fills the rest.
+# 0 disables fetching entirely (cache-only). Override via PRICE_FETCH_BUDGET.
+FETCH_BUDGET_S = float(os.environ.get("PRICE_FETCH_BUDGET", "12"))
 
+
+def _fetch_one(ticker, start, end):
+    for name, fn in PROVIDERS:
+        try:
+            fetched = fn(ticker, start, end)
+        except Exception:
+            fetched = None
+        if fetched:
+            return fetched, name
+    return None, None
+
+
+def get_daily_closes(tickers, start, end, force=False):
+    """Return ({ticker: pd.Series indexed by Timestamp}, {ticker: error_msg}).
+
+    Fetching is bounded by FETCH_BUDGET_S: tickers with NO cache are fetched
+    first (they'd otherwise be blank), then merely-stale ones, until the budget
+    runs out. Whatever is cached (fresh or stale) is always returned so the
+    chart renders instead of hanging.
+    """
+    result, errors = {}, {}
+    cache = {t.upper(): db.get_cached_prices(t.upper()) for t in tickers}
+
+    # decide what needs fetching, prioritizing empty caches over stale ones
+    need_empty, need_stale = [], []
+    for t, cached in cache.items():
+        if force or not cached:
+            (need_empty if not cached else need_stale).append(t)
+        elif _needs_refetch(cached, start, end):
+            need_stale.append(t)
+
+    deadline = time.monotonic() + FETCH_BUDGET_S
+    for t in need_empty + need_stale:
+        if FETCH_BUDGET_S <= 0 or time.monotonic() >= deadline:
+            break
+        fetched, source = _fetch_one(t, start, end)
+        if fetched:
+            db.store_prices(t, fetched, source)
+            cache[t] = db.get_cached_prices(t)
+
+    for t, cached in cache.items():
         if cached:
             s = pd.Series(cached, dtype="float64")
             s.index = pd.to_datetime(s.index)
             result[t] = s.sort_index()
         else:
-            errors[t] = ("No price data (Yahoo may be rate-limited; "
-                         "set ALPHAVANTAGE_API_KEY for a reliable fallback).")
+            errors[t] = ("No price data yet (source slow/unavailable); "
+                         "try 刷新股价 again in a moment.")
     return result, errors
