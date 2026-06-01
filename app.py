@@ -398,39 +398,6 @@ def get_chart():
                    else portfolio.compute(db.get_active_portfolio_id(uid), uid))
 
 
-@app.get("/api/_debug/prices")
-@login_required
-def _debug_prices():
-    """TEMP diagnostic: for the active portfolio, show each ticker, its cached
-    date range, and what compute() resolves as last_price. Remove after use."""
-    import datetime as _dt
-    uid = _uid()
-    pid = db.get_active_portfolio_id(uid)
-    trades = db.list_trades(pid)
-    tickers = sorted({t["ticker"] for t in trades})
-    info = {}
-    for raw in tickers:
-        t = raw.upper()
-        cached = db.get_cached_prices(t)
-        info[repr(raw)] = {
-            "normalized": t,
-            "cached_points": len(cached),
-            "first": min(cached) if cached else None,
-            "last": max(cached) if cached else None,
-        }
-    ch = portfolio.compute(pid, uid)
-    holdings = {h["ticker"]: h["last_price"] for h in ch["stats"]["holdings"]}
-    return jsonify({
-        "active_portfolio": pid,
-        "today": _dt.date.today().isoformat(),
-        "range": ch.get("range"),
-        "tickers": info,
-        "errors": ch.get("errors"),
-        "holdings_last_price": holdings,
-        "market_value": ch["stats"]["totals"].get("market_value"),
-    })
-
-
 # --------------------------------------------------------------------------- #
 #  Trades
 # --------------------------------------------------------------------------- #
