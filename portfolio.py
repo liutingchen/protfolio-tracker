@@ -63,6 +63,14 @@ def compute_stock(ticker, uid):
         df[col] = df[col].fillna(df["close"])
     df["volume"] = df["volume"].fillna(0.0)
 
+    # Daily Vol% (MarketSurge style): the last day's volume in each week vs the
+    # trailing 50-trading-day average volume up to that day. Computed on the
+    # daily series, then mapped onto each weekly bar by its last trading day.
+    daily_vol = df["volume"]
+    daily_vol_avg50 = daily_vol.rolling(50, min_periods=10).mean()
+    daily_volpct = (daily_vol - daily_vol_avg50) / daily_vol_avg50 * 100.0
+    last_day_of_week = df.index.to_series().resample("W-FRI").max()  # week -> last trading day
+
     # daily -> weekly OHLCV
     w = df.resample("W-FRI")
     wk = pd.DataFrame({
@@ -74,7 +82,6 @@ def compute_stock(ticker, uid):
     wk["ma10"] = wk["close"].rolling(10, min_periods=10).mean()
     wk["ma40"] = wk["close"].rolling(40, min_periods=40).mean()
     wk["prev_close"] = wk["close"].shift(1)
-    wk["vol_avg10"] = wk["volume"].rolling(10, min_periods=1).mean()
 
     candles, volume, bars = [], [], []
     for ts, r in wk.iterrows():
@@ -87,8 +94,13 @@ def compute_stock(ticker, uid):
         chg = (cl - r["prev_close"]) if pd.notna(r["prev_close"]) else None
         chg_pct = (chg / r["prev_close"] * 100.0) if (chg is not None and r["prev_close"]) else None
         vol = float(r["volume"]) if pd.notna(r["volume"]) else None
-        vol_pct = (((vol - r["vol_avg10"]) / r["vol_avg10"] * 100.0)
-                   if (vol and pd.notna(r["vol_avg10"]) and r["vol_avg10"] > 0) else None)
+        # Vol% = that week's last trading day's volume vs trailing 50-day avg
+        vol_pct = None
+        ld = last_day_of_week.get(ts)
+        if ld is not None and ld in daily_volpct.index:
+            v = daily_volpct.loc[ld]
+            if pd.notna(v):
+                vol_pct = float(v)
         up = cl >= op
         candles.append({"time": t, "open": _round(op), "high": _round(hi),
                         "low": _round(lo), "close": _round(cl)})
