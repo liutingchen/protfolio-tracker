@@ -177,7 +177,7 @@ function renderChart(ch, freq) {
   const host = $("chart");
   if (chart) { chart.remove(); chart = null; }
   $("chartEmpty").hidden = !!ch.has_data;
-  if (!ch.has_data) return;
+  if (!ch.has_data) { $("dataBox").hidden = true; return; }
 
   chart = LightweightCharts.createChart(host, {
     autoSize: true,
@@ -226,7 +226,68 @@ function renderChart(ch, freq) {
   })));
 
   setupTooltip(host, d.markers);
+  setupDataBox(d, weekly);
   chart.timeScale().fitContent();
+}
+
+// MarketSurge-style hover report (Date/OHLC/Last/%Chg/SMA10/SMA40).
+function setupDataBox(d, weekly) {
+  const box = $("dataBox");
+  // index every series by time for O(1) lookup
+  const bars = {};   // time -> {o,h,l,c}
+  if (weekly) {
+    d.candles.forEach((b) => { bars[b.time] = { o: b.open, h: b.high, l: b.low, c: b.close }; });
+  } else {
+    d.line.forEach((p) => { bars[p.time] = { o: null, h: null, l: null, c: p.value }; });
+  }
+  const ma10 = {}, ma40 = {};
+  (weekly ? d.ma10 : d.ma50).forEach((p) => { ma10[p.time] = p.value; });
+  if (weekly) d.ma40.forEach((p) => { ma40[p.time] = p.value; });
+
+  const times = (weekly ? d.candles : d.line).map((b) => b.time);
+  const prevClose = {};   // time -> previous bar's close, for %Chg
+  let pc = null;
+  times.forEach((t) => { prevClose[t] = pc; pc = bars[t].c; });
+
+  const unit = (state.data && state.data.unit) || "$";
+  const fmt = (v) => (v == null ? "—" : (unit === "idx" ? "" : "$") + nf.format(v));
+  const ma10Label = weekly ? "SMA(10)" : "MA(50d)";
+
+  const render = (time) => {
+    const b = bars[time];
+    if (!b) { box.hidden = true; return; }
+    const last = b.c, pcv = prevClose[time];
+    const chg = (pcv != null) ? last - pcv : null;
+    const chgPct = (pcv != null && pcv !== 0) ? (chg / pcv * 100) : null;
+    const cls = (v) => (v == null ? "" : v >= 0 ? "pos" : "neg");
+    const signed = (v) => (v == null ? "—" : (v >= 0 ? "+" : "") + nf.format(v));
+    const row = (k, v, kc, vc) =>
+      `<div class="db-row"><span class="db-k" ${kc ? `style="color:${kc}"` : ""}>${k}</span>` +
+      `<span class="db-v ${vc || ""}">${v}</span></div>`;
+    const m10 = ma10[time], m40 = ma40[time];
+    let html = row("Date", time);
+    if (weekly) {
+      html += row("Open", fmt(b.o)) + row("High", fmt(b.h)) + row("Low", fmt(b.l));
+    }
+    html += row("Last", fmt(last));
+    html += row("Chg", signed(chg), null, cls(chg));
+    html += row("% Chg", chgPct == null ? "—" : signed(chgPct) + "%", null, cls(chgPct));
+    html += `<div class="db-sep"></div>`;
+    html += row(ma10Label, fmt(m10), "#2962ff");
+    if (weekly) html += row("SMA(40)", fmt(m40), "#ff9800");
+    box.innerHTML = html;
+    box.hidden = false;
+  };
+
+  // default: latest bar
+  const latest = times[times.length - 1];
+  if (latest) render(latest);
+
+  chart.subscribeCrosshairMove((param) => {
+    const key = timeToStr(param.time);
+    if (key && bars[key]) render(key);
+    else if (latest) render(latest);   // off-chart: fall back to latest
+  });
 }
 
 function setupTooltip(host, markers) {

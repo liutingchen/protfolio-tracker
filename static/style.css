@@ -149,6 +149,19 @@ body {
 .tooltip .tt-row { margin-top: 4px; }
 .tooltip .tt-reason { color: var(--muted); margin-top: 2px; }
 
+/* MarketSurge-style data box (hover report) */
+.databox {
+  position: absolute; top: 12px; left: 12px; z-index: 20; pointer-events: none;
+  background: rgba(22,26,30,.94); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 11px; font-size: 12px; line-height: 1.5; min-width: 200px;
+  box-shadow: 0 6px 22px rgba(0,0,0,.45); font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(3px);
+}
+.databox .db-row { display: flex; justify-content: space-between; gap: 18px; }
+.databox .db-k { color: var(--muted); }
+.databox .db-v { font-weight: 600; }
+.databox .db-sep { height: 1px; background: var(--border); margin: 5px 0; }
+
 .warnbox {
   margin: 0; padding: 9px 22px; background: #2a2410; color: #f0c14b;
   border-bottom: 1px solid var(--border); font-size: 12.5px;
