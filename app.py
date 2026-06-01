@@ -401,8 +401,10 @@ def get_chart():
 @app.get("/api/stock/<ticker>")
 @login_required
 def get_stock(ticker):
-    """Weekly candle + 10/40-week SMA for a single stock (holding detail view)."""
-    return jsonify(portfolio.compute_stock(ticker, _uid()))
+    """Candle chart for a single stock at weekly or daily resolution.
+    ?freq=weekly -> 10/40-week SMA; ?freq=daily -> EMA10/21 + SMA50/150/200."""
+    freq = request.args.get("freq", "weekly")
+    return jsonify(portfolio.compute_stock(ticker, _uid(), freq))
 
 
 @app.post("/api/set-cash")

@@ -175,30 +175,52 @@ function renderHoldings(holdings) {
     }).join("") + `</tbody></table>`;
 }
 
-// ----- single-stock weekly chart ------------------------------------------
+// ----- single-stock chart (weekly / daily) --------------------------------
 let stockChart = null;
-window.openStock = async function (ticker) {
+let stockTicker = null;
+let stockFreq = "weekly";
+window.openStock = function (ticker) {
+  stockTicker = ticker;
+  stockFreq = "weekly";
+  syncStockFreqSeg();
   $("stockTitle").textContent = ticker;
+  $("stockModal").hidden = false;
+  loadStock();
+};
+function syncStockFreqSeg() {
+  document.querySelectorAll("#stockFreqSeg button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.sfreq === stockFreq));
+}
+async function loadStock() {
   $("stockMeta").textContent = "加载中…";
   $("stockEmpty").hidden = true;
   $("stockBox").hidden = true;
-  $("stockModal").hidden = false;
   try {
-    const d = await api("GET", "/api/stock/" + encodeURIComponent(ticker));
+    const d = await api("GET", "/api/stock/" + encodeURIComponent(stockTicker) + "?freq=" + stockFreq);
     if (!d.has_data) {
       $("stockMeta").textContent = "";
+      $("stockLegend").innerHTML = "";
       $("stockEmpty").hidden = false;
       renderStockChart(null);
       return;
     }
     $("stockMeta").textContent = `$${nf.format(d.last)} · 截至 ${d.asof}`;
+    renderStockLegend(d);
     renderStockChart(d);
   } catch (ex) {
     $("stockMeta").textContent = "";
     $("stockEmpty").textContent = "加载失败：" + ex.message;
     $("stockEmpty").hidden = false;
   }
-};
+}
+
+function renderStockLegend(d) {
+  const lg = $("stockLegend");
+  const label = stockFreq === "weekly" ? "周K线" : "日K线";
+  lg.innerHTML = `<span class="lg lg-candle">${label}</span>` +
+    (d.mas || []).map((m) =>
+      `<span class="lg"><span class="dot" style="background:${m.color}"></span>${m.label}</span>`).join("");
+}
 
 function renderStockChart(d) {
   const host = $("stockChart");
@@ -218,14 +240,12 @@ function renderStockChart(d) {
     borderDownColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350",
   });
   candle.setData(d.candles);
-  if (d.ma10 && d.ma10.length) {
-    const s = stockChart.addLineSeries({ color: "#2962ff", lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false });
-    s.setData(d.ma10);
-  }
-  if (d.ma40 && d.ma40.length) {
-    const s = stockChart.addLineSeries({ color: "#ff9800", lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false });
-    s.setData(d.ma40);
-  }
+  (d.mas || []).forEach((m) => {
+    if (m.points && m.points.length) {
+      const s = stockChart.addLineSeries({ color: m.color, lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false });
+      s.setData(m.points);
+    }
+  });
   if (d.volume && d.volume.length) {
     const v = stockChart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
     v.setData(d.volume);
@@ -247,6 +267,7 @@ function setupStockBox(host, d) {
   const box = $("stockBox");
   const bars = {}; (d.bars || []).forEach((b) => { bars[b.time] = b; });
   const times = (d.bars || []).map((b) => b.time);
+  const maSpecs = d.mas || [];
   const fmt = (v) => (v == null ? "—" : "$" + nf.format(v));
   const signPctV = (v) => (v == null ? "—" : (v >= 0 ? "+" : "") + nf.format(v) + "%");
   const cls = (v) => (v == null ? "" : v >= 0 ? "pos" : "neg");
@@ -263,12 +284,13 @@ function setupStockBox(host, d) {
       row("Vol", fmtVol(b.volume)) +
       row("Vol %", signPctV(b.vol_pct), null, cls(b.vol_pct)) +
       `<div class="db-sep"></div>`;
-    // SMA with distance-from-price, MarketSurge style: "105.04 +1.7%"
-    const d10 = distPct(b.close, b.ma10), d40 = distPct(b.close, b.ma40);
-    html += row("SMA(10)", b.ma10 == null ? "—" :
-      `${fmt(b.ma10)} <span class="${cls(d10)}">${signPctV(d10)}</span>`, "#2962ff");
-    html += row("SMA(40)", b.ma40 == null ? "—" :
-      `${fmt(b.ma40)} <span class="${cls(d40)}">${signPctV(d40)}</span>`, "#ff9800");
+    // each MA: value + distance-from-price, MarketSurge style "105.04 +1.7%"
+    (b.ma ? maSpecs : []).forEach((m) => {
+      const val = b.ma[m.key];
+      const dist = distPct(b.close, val);
+      html += row(m.label, val == null ? "—" :
+        `${fmt(val)} <span class="${cls(dist)}">${signPctV(dist)}</span>`, m.color);
+    });
     box.innerHTML = html;
     box.hidden = false;
   };
@@ -631,6 +653,13 @@ function wire() {
   $("stockModal").addEventListener("click", (e) => {
     if (e.target === $("stockModal")) closeStock();
   });
+  document.querySelectorAll("#stockFreqSeg button").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (stockFreq === b.dataset.sfreq) return;
+      stockFreq = b.dataset.sfreq;
+      syncStockFreqSeg();
+      loadStock();
+    }));
 
   $("impAddRow").addEventListener("click", () => impAddRow());
   $("importSubmit").addEventListener("click", async () => {

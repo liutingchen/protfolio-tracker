@@ -44,90 +44,118 @@ def _align(ts: pd.Timestamp, index: pd.DatetimeIndex):
     return index[pos]
 
 
-def compute_stock(ticker, uid):
-    """Weekly OHLCV chart for ONE stock + 10/40-week SMA + volume + the user's
-    own buy/sell markers. Each weekly bar carries the data the detail box shows:
-    OHLC, %Chg vs prior week, close-range (where close sits in the H-L range),
-    volume, and volume vs its own 10-week average (Vol%)."""
+# Moving-average sets per timeframe (MarketSurge style).
+#   weekly: 10- & 40-week SMA
+#   daily:  10/21 EMA + 50/150/200 SMA
+_MA_SETS = {
+    "weekly": [
+        {"key": "sma10", "label": "SMA(10)", "color": "#2962ff", "kind": "sma", "n": 10},
+        {"key": "sma40", "label": "SMA(40)", "color": "#ff9800", "kind": "sma", "n": 40},
+    ],
+    "daily": [
+        {"key": "ema10", "label": "EMA(10)",  "color": "#2962ff", "kind": "ema", "n": 10},
+        {"key": "ema21", "label": "EMA(21)",  "color": "#e91e63", "kind": "ema", "n": 21},
+        {"key": "sma50", "label": "SMA(50)",  "color": "#ef5350", "kind": "sma", "n": 50},
+        {"key": "sma150", "label": "SMA(150)", "color": "#ab47bc", "kind": "sma", "n": 150},
+        {"key": "sma200", "label": "SMA(200)", "color": "#26a69a", "kind": "sma", "n": 200},
+    ],
+}
+
+
+def compute_stock(ticker, uid, freq="weekly"):
+    """OHLCV chart for ONE stock at weekly or daily resolution + the timeframe's
+    moving averages + volume + the user's own buy/sell markers. Each bar carries
+    the data the detail box shows: OHLC, %Chg vs prior bar, close-range, volume,
+    and Vol% (volume vs trailing 50-day average daily volume)."""
     ticker = (ticker or "").upper()
+    freq = "daily" if freq == "daily" else "weekly"
     ohlcv = db.get_cached_ohlcv(ticker)
     if not ohlcv:
-        return {"ticker": ticker, "has_data": False,
-                "candles": [], "ma10": [], "ma40": [], "volume": [], "markers": []}
+        return {"ticker": ticker, "freq": freq, "has_data": False,
+                "candles": [], "volume": [], "bars": [], "mas": [], "markers": []}
 
     df = pd.DataFrame.from_dict(ohlcv, orient="index")
     df.index = pd.to_datetime(df.index)
     df = df.sort_index()
-    # legacy rows may have only close; fall back O/H/L to close so bars still draw
-    for col in ("open", "high", "low"):
+    for col in ("open", "high", "low"):           # legacy close-only rows
         df[col] = df[col].fillna(df["close"])
     df["volume"] = df["volume"].fillna(0.0)
 
-    # Daily Vol% (MarketSurge style): the last day's volume in each week vs the
-    # trailing 50-trading-day average volume up to that day. Computed on the
-    # daily series, then mapped onto each weekly bar by its last trading day.
-    daily_vol = df["volume"]
-    daily_vol_avg50 = daily_vol.rolling(50, min_periods=10).mean()
-    daily_volpct = (daily_vol - daily_vol_avg50) / daily_vol_avg50 * 100.0
-    last_day_of_week = df.index.to_series().resample("W-FRI").max()  # week -> last trading day
+    # Vol% always uses the daily basis (MarketSurge): a day's volume vs the
+    # trailing 50-trading-day average daily volume.
+    daily_volpct = ((df["volume"] - df["volume"].rolling(50, min_periods=10).mean())
+                    / df["volume"].rolling(50, min_periods=10).mean() * 100.0)
 
-    # daily -> weekly OHLCV
-    w = df.resample("W-FRI")
-    wk = pd.DataFrame({
-        "open": w["open"].first(), "high": w["high"].max(),
-        "low": w["low"].min(), "close": w["close"].last(),
-        "volume": w["volume"].sum(),
-    }).dropna(subset=["close"])
+    if freq == "weekly":
+        w = df.resample("W-FRI")
+        bar_df = pd.DataFrame({
+            "open": w["open"].first(), "high": w["high"].max(),
+            "low": w["low"].min(), "close": w["close"].last(),
+            "volume": w["volume"].sum(),
+        }).dropna(subset=["close"])
+        # map each weekly bar to its last trading day for the daily-basis Vol%
+        last_day = df.index.to_series().resample("W-FRI").max()
+        volpct_for = lambda ts: (daily_volpct.get(last_day.get(ts))
+                                 if last_day.get(ts) is not None else None)
+    else:
+        bar_df = df[["open", "high", "low", "close", "volume"]].copy()
+        volpct_for = lambda ts: daily_volpct.get(ts)
 
-    wk["ma10"] = wk["close"].rolling(10, min_periods=10).mean()
-    wk["ma40"] = wk["close"].rolling(40, min_periods=40).mean()
-    wk["prev_close"] = wk["close"].shift(1)
+    bar_df["prev_close"] = bar_df["close"].shift(1)
+
+    # moving averages for this timeframe
+    ma_specs = _MA_SETS[freq]
+    for spec in ma_specs:
+        c = bar_df["close"]
+        if spec["kind"] == "ema":
+            bar_df[spec["key"]] = c.ewm(span=spec["n"], adjust=False,
+                                        min_periods=spec["n"]).mean()
+        else:
+            bar_df[spec["key"]] = c.rolling(spec["n"], min_periods=spec["n"]).mean()
 
     candles, volume, bars = [], [], []
-    for ts, r in wk.iterrows():
-        if math.isnan(r["close"]):
+    for ts, r in bar_df.iterrows():
+        if pd.isna(r["close"]):
             continue
         t = ts.strftime("%Y-%m-%d")
         hi, lo, cl, op = r["high"], r["low"], r["close"], r["open"]
-        rng = (hi - lo)
+        rng = hi - lo
         cls_range = ((cl - lo) / rng * 100.0) if rng and rng > 0 else None
         chg = (cl - r["prev_close"]) if pd.notna(r["prev_close"]) else None
         chg_pct = (chg / r["prev_close"] * 100.0) if (chg is not None and r["prev_close"]) else None
         vol = float(r["volume"]) if pd.notna(r["volume"]) else None
-        # Vol% = that week's last trading day's volume vs trailing 50-day avg
-        vol_pct = None
-        ld = last_day_of_week.get(ts)
-        if ld is not None and ld in daily_volpct.index:
-            v = daily_volpct.loc[ld]
-            if pd.notna(v):
-                vol_pct = float(v)
+        vpv = volpct_for(ts)
+        vol_pct = float(vpv) if vpv is not None and pd.notna(vpv) else None
         up = cl >= op
         candles.append({"time": t, "open": _round(op), "high": _round(hi),
                         "low": _round(lo), "close": _round(cl)})
         if vol is not None:
             volume.append({"time": t, "value": vol,
                            "color": "rgba(38,166,154,.5)" if up else "rgba(239,83,80,.5)"})
+        ma_vals = {spec["key"]: (_round(r[spec["key"]]) if pd.notna(r[spec["key"]]) else None)
+                   for spec in ma_specs}
         bars.append({
             "time": t, "open": _round(op), "high": _round(hi), "low": _round(lo),
             "close": _round(cl), "chg": _round(chg), "chg_pct": _round(chg_pct),
             "cls_range": _round(cls_range, 0), "volume": vol,
-            "vol_pct": _round(vol_pct, 1),
-            "ma10": _round(r["ma10"]) if pd.notna(r["ma10"]) else None,
-            "ma40": _round(r["ma40"]) if pd.notna(r["ma40"]) else None,
+            "vol_pct": _round(vol_pct, 1), "ma": ma_vals,
         })
 
-    ma10 = _series_to_points(wk["ma10"])
-    ma40 = _series_to_points(wk["ma40"])
+    # the line series for each MA (key/label/color + points)
+    mas = [{
+        "key": spec["key"], "label": spec["label"], "color": spec["color"],
+        "points": _series_to_points(bar_df[spec["key"]]),
+    } for spec in ma_specs]
 
-    # the user's own trades on this ticker, snapped onto weekly bars
-    weekly_index = pd.DatetimeIndex(wk.index)
+    # the user's own trades on this ticker, snapped onto bars
+    bar_index = pd.DatetimeIndex(bar_df.index)
     markers = []
     for pf in db.list_portfolios(uid):
         for t in db.list_trades(pf["id"]):
             if t["ticker"].upper() != ticker:
                 continue
             is_buy = t["side"] == "buy"
-            bar = _align(pd.to_datetime(t["date"]), weekly_index)
+            bar = _align(pd.to_datetime(t["date"]), bar_index)
             markers.append({
                 "time": bar.strftime("%Y-%m-%d"),
                 "position": "belowBar" if is_buy else "aboveBar",
@@ -138,11 +166,11 @@ def compute_stock(ticker, uid):
     markers.sort(key=lambda m: m["time"])
 
     return {
-        "ticker": ticker, "has_data": bool(candles),
+        "ticker": ticker, "freq": freq, "has_data": bool(candles),
         "last": _round(float(df["close"].iloc[-1])),
         "asof": df.index.max().strftime("%Y-%m-%d"),
-        "candles": candles, "ma10": ma10, "ma40": ma40,
-        "volume": volume, "bars": bars, "markers": markers,
+        "candles": candles, "volume": volume, "bars": bars,
+        "mas": mas, "markers": markers,
     }
 
 
