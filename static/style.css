@@ -111,6 +111,10 @@ body {
 .stat .v { font-size: 20px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; }
 .pos { color: var(--green); }
 .neg { color: var(--red); }
+.stat-editable { cursor: pointer; transition: background .15s; }
+.stat-editable:hover { background: var(--panel-2); }
+.edit-pencil { opacity: 0; transition: opacity .15s; color: var(--accent); }
+.stat-editable:hover .edit-pencil { opacity: 1; }
 
 /* toolbar */
 .toolbar {

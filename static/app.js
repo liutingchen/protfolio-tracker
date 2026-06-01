@@ -119,17 +119,41 @@ function renderStats(t, ch) {
   if (!t || t.total_value == null) { bar.innerHTML = ""; return; }
   const cls = (v) => (v >= 0 ? "pos" : "neg");
   const items = [
-    ["账户总值", fmtMoney(t.total_value), ""],
-    ["累计盈亏", signMoney(t.total_pnl), cls(t.total_pnl)],
-    ["收益率", signPct(t.return_pct), t.return_pct == null ? "" : cls(t.return_pct)],
-    ["已实现盈亏", signMoney(t.realized_pnl), cls(t.realized_pnl)],
-    ["未实现盈亏", signMoney(t.unrealized_pnl), cls(t.unrealized_pnl)],
-    ["持仓市值", fmtMoney(t.market_value), ""],
-    ["现金", fmtMoney(t.cash), ""],
-    ["持仓数", t.num_positions, ""],
+    ["账户总值", fmtMoney(t.total_value), "", ""],
+    ["累计盈亏", signMoney(t.total_pnl), cls(t.total_pnl), ""],
+    ["收益率", signPct(t.return_pct), t.return_pct == null ? "" : cls(t.return_pct), ""],
+    ["已实现盈亏", signMoney(t.realized_pnl), cls(t.realized_pnl), ""],
+    ["未实现盈亏", signMoney(t.unrealized_pnl), cls(t.unrealized_pnl), ""],
+    ["持仓市值", fmtMoney(t.market_value), "", ""],
+    ["现金", fmtMoney(t.cash), "", "cash"],
+    ["持仓数", t.num_positions, "", ""],
   ];
-  bar.innerHTML = items.map(([k, v, c]) =>
-    `<div class="stat"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
+  // remember the current cash so the editor can prefill it
+  state.currentCash = t.cash;
+  bar.innerHTML = items.map(([k, v, c, kind]) => {
+    if (kind === "cash" && !state.isAll) {
+      return `<div class="stat stat-editable" id="cashStat" title="点击修改现金">` +
+        `<div class="k">${k} <span class="edit-pencil">✎</span></div><div class="v ${c}">${v}</div></div>`;
+    }
+    return `<div class="stat"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`;
+  }).join("");
+
+  const cashStat = $("cashStat");
+  if (cashStat) cashStat.addEventListener("click", editCash);
+}
+
+async function editCash() {
+  const cur = state.currentCash;
+  const input = prompt("设置当前现金金额（$）：\n会自动调整起始本金，使现金等于该值；持仓和盈亏不受影响。",
+    cur == null ? "" : String(cur));
+  if (input === null) return;
+  const val = parseFloat(String(input).replace(/[$,\s]/g, ""));
+  if (isNaN(val) || val < 0) { showToast("请输入有效的非负数字。", false); return; }
+  try {
+    await api("POST", "/api/set-cash", { cash: val });
+    await load();
+    showToast("现金已更新为 " + fmtMoney(val) + " ✓", true);
+  } catch (ex) { showToast(ex.message, false); }
 }
 
 function renderHoldings(holdings) {

@@ -398,6 +398,44 @@ def get_chart():
                    else portfolio.compute(db.get_active_portfolio_id(uid), uid))
 
 
+@app.post("/api/set-cash")
+@login_required
+def set_cash():
+    """Set the portfolio's current cash to an exact amount.
+
+    cash = starting_capital + cumulative_cashflow(buys/sells). Cashflow is fixed
+    by the trade history, so to make cash == target we adjust starting_capital:
+        new_starting_capital = target_cash - cumulative_cashflow
+    Holdings, P&L and the chart shape are unaffected; only the cash/NAV baseline
+    shifts to match what you actually have.
+    """
+    if _scope() == "all":
+        return jsonify({"error": "合并视图下不能改现金，请切换到具体组合。"}), 400
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        target = float(data.get("cash"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "现金必须是数字。"}), 400
+    if target < 0:
+        return jsonify({"error": "现金不能为负。"}), 400
+
+    uid = _uid()
+    pid = db.get_active_portfolio_id(uid)
+    p = db.get_portfolio(pid, uid)
+    if not p:
+        return jsonify({"error": "没有可用的组合。"}), 400
+
+    # cumulative cashflow from trades (buy = -cost-fees, sell = +proceeds-fees)
+    cashflow = 0.0
+    for t in db.list_trades(pid):
+        notional = t["shares"] * t["price"]
+        cashflow += (-(notional) - t["fees"]) if t["side"] == "buy" \
+            else (notional - t["fees"])
+    new_cap = target - cashflow
+    db.update_portfolio(pid, {"starting_capital": new_cap}, uid)
+    return jsonify({"ok": True, "cash": target, "starting_capital": new_cap})
+
+
 # --------------------------------------------------------------------------- #
 #  Trades
 # --------------------------------------------------------------------------- #
