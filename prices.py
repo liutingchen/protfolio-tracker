@@ -244,6 +244,52 @@ PROVIDERS = [
 ]
 
 
+def _fetch_quote(ticker):
+    """Real-time (intraday) quote for one ticker. Returns (price, asof_date) or
+    (None, None). Uses stockanalysis' quotes API (`p` = live price)."""
+    for kind in ("s", "e"):
+        url = f"https://stockanalysis.com/api/quotes/{kind}/{ticker}"
+        try:
+            with _FETCH_LOCK:
+                gap = _MIN_SPACING_S - (time.monotonic() - _last_fetch_at[0])
+                if gap > 0:
+                    time.sleep(gap)
+                try:
+                    r = _SA_SESSION.get(url, timeout=12)
+                finally:
+                    _last_fetch_at[0] = time.monotonic()
+            if r.status_code != 200:
+                continue
+            d = (r.json() or {}).get("data") or {}
+            px = d.get("p")
+            if px is None or float(px) <= 0:
+                continue
+            # timestamp (ms) -> date; fall back to today if absent
+            ts = d.get("ts")
+            asof = (dt.datetime.utcfromtimestamp(float(ts) / 1000).strftime("%Y-%m-%d")
+                    if ts else None)
+            return float(px), asof
+        except Exception:
+            continue
+    return None, None
+
+
+def get_quotes(tickers, today):
+    """Fetch live prices and upsert each into the cache dated `today` so the
+    valuation picks them up as the latest point. Returns {ticker: price}."""
+    out = {}
+    for t in tickers:
+        t = t.upper()
+        px, asof = _fetch_quote(t)
+        if px is not None:
+            # store under today's date (or the quote's own date if it's newer
+            # than today, which shouldn't happen but is harmless)
+            day = max(today, asof) if asof else today
+            db.store_prices(t, {day: px}, "stockanalysis-quote")
+            out[t] = px
+    return out
+
+
 # --------------------------------------------------------------------------- #
 #  Cache + public API
 # --------------------------------------------------------------------------- #

@@ -583,8 +583,11 @@ def refresh_prices():
     end = _dt.date.today().isoformat()
     # explicit refresh: allow more time so all tickers get re-fetched
     _, errors = _prices.get_daily_closes(tickers, start, end, force=True, budget=60)
+    # then overlay real-time intraday quotes so the latest price is live, not
+    # just the prior close (market hours -> live; after hours -> last trade)
+    quotes = _prices.get_quotes(tickers, end)
     return jsonify({"ok": True, "refreshed": len(tickers) - len(errors),
-                    "failed": sorted(errors.keys())})
+                    "live_quotes": len(quotes), "failed": sorted(errors.keys())})
 
 
 @app.post("/api/clear")
