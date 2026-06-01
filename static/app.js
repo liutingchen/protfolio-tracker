@@ -364,10 +364,9 @@ function renderChart(ch, freq) {
   vol.setData(d.volume);
   chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
 
-  main.setMarkers(d.markers.map((m) => ({
-    time: m.time, position: m.position, color: m.color, shape: m.shape, text: m.text,
-  })));
-
+  // No on-chart buy/sell arrows on the portfolio chart — with many holdings
+  // they pile up and clutter the view. The crosshair tooltip shows what was
+  // bought/sold that period instead (see setupTooltip).
   setupTooltip(host, d.markers);
   setupDataBox(d, weekly);
   chart.timeScale().fitContent();
