@@ -225,8 +225,10 @@ textarea { resize: vertical; }
 .stock-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
 .stock-legend .dot { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
 .stock-legend .lg-candle::before { content: ""; width: 9px; height: 12px; background: var(--green); border-radius: 1px; display: inline-block; margin-right: 6px; vertical-align: middle; }
-#stockChart { width: 100%; height: 420px; position: relative; }
-.stock-databox { top: 8px; left: 8px; }
+#stockChart { width: 100%; height: 440px; position: relative; }
+.stock-databox { top: 8px; left: 8px; min-width: 210px; }
+.stock-databox .db-v .pos { color: var(--green); }
+.stock-databox .db-v .neg { color: var(--red); }
 .pill { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .pill.buy { background: rgba(38,166,154,.16); color: var(--green); }
 .pill.sell { background: rgba(239,83,80,.16); color: var(--red); }

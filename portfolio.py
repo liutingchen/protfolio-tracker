@@ -45,30 +45,67 @@ def _align(ts: pd.Timestamp, index: pd.DatetimeIndex):
 
 
 def compute_stock(ticker, uid):
-    """Weekly candle chart for ONE stock: OHLC (from daily closes) + 10/40-week
-    SMA + the user's own buy/sell markers on that ticker. Used by the holding
-    detail view. `uid` scopes the trade markers to the current user."""
+    """Weekly OHLCV chart for ONE stock + 10/40-week SMA + volume + the user's
+    own buy/sell markers. Each weekly bar carries the data the detail box shows:
+    OHLC, %Chg vs prior week, close-range (where close sits in the H-L range),
+    volume, and volume vs its own 10-week average (Vol%)."""
     ticker = (ticker or "").upper()
-    cached = db.get_cached_prices(ticker)
-    if not cached:
+    ohlcv = db.get_cached_ohlcv(ticker)
+    if not ohlcv:
         return {"ticker": ticker, "has_data": False,
-                "candles": [], "ma10": [], "ma40": [], "markers": []}
+                "candles": [], "ma10": [], "ma40": [], "volume": [], "markers": []}
 
-    s = pd.Series(cached, dtype="float64")
-    s.index = pd.to_datetime(s.index)
-    s = s.sort_index()
+    df = pd.DataFrame.from_dict(ohlcv, orient="index")
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+    # legacy rows may have only close; fall back O/H/L to close so bars still draw
+    for col in ("open", "high", "low"):
+        df[col] = df[col].fillna(df["close"])
+    df["volume"] = df["volume"].fillna(0.0)
 
-    # daily closes -> weekly OHLC (open=first, high=max, low=min, close=last)
-    w = s.resample("W-FRI")
-    wk = pd.DataFrame({"open": w.first(), "high": w.max(),
-                       "low": w.min(), "close": w.last()}).dropna(how="all")
-    candles = [{
-        "time": ts.strftime("%Y-%m-%d"),
-        "open": _round(r["open"]), "high": _round(r["high"]),
-        "low": _round(r["low"]), "close": _round(r["close"]),
-    } for ts, r in wk.iterrows() if not math.isnan(r["close"])]
-    ma10 = _series_to_points(wk["close"].rolling(10, min_periods=10).mean())
-    ma40 = _series_to_points(wk["close"].rolling(40, min_periods=40).mean())
+    # daily -> weekly OHLCV
+    w = df.resample("W-FRI")
+    wk = pd.DataFrame({
+        "open": w["open"].first(), "high": w["high"].max(),
+        "low": w["low"].min(), "close": w["close"].last(),
+        "volume": w["volume"].sum(),
+    }).dropna(subset=["close"])
+
+    wk["ma10"] = wk["close"].rolling(10, min_periods=10).mean()
+    wk["ma40"] = wk["close"].rolling(40, min_periods=40).mean()
+    wk["prev_close"] = wk["close"].shift(1)
+    wk["vol_avg10"] = wk["volume"].rolling(10, min_periods=1).mean()
+
+    candles, volume, bars = [], [], []
+    for ts, r in wk.iterrows():
+        if math.isnan(r["close"]):
+            continue
+        t = ts.strftime("%Y-%m-%d")
+        hi, lo, cl, op = r["high"], r["low"], r["close"], r["open"]
+        rng = (hi - lo)
+        cls_range = ((cl - lo) / rng * 100.0) if rng and rng > 0 else None
+        chg = (cl - r["prev_close"]) if pd.notna(r["prev_close"]) else None
+        chg_pct = (chg / r["prev_close"] * 100.0) if (chg is not None and r["prev_close"]) else None
+        vol = float(r["volume"]) if pd.notna(r["volume"]) else None
+        vol_pct = (((vol - r["vol_avg10"]) / r["vol_avg10"] * 100.0)
+                   if (vol and pd.notna(r["vol_avg10"]) and r["vol_avg10"] > 0) else None)
+        up = cl >= op
+        candles.append({"time": t, "open": _round(op), "high": _round(hi),
+                        "low": _round(lo), "close": _round(cl)})
+        if vol is not None:
+            volume.append({"time": t, "value": vol,
+                           "color": "rgba(38,166,154,.5)" if up else "rgba(239,83,80,.5)"})
+        bars.append({
+            "time": t, "open": _round(op), "high": _round(hi), "low": _round(lo),
+            "close": _round(cl), "chg": _round(chg), "chg_pct": _round(chg_pct),
+            "cls_range": _round(cls_range, 0), "volume": vol,
+            "vol_pct": _round(vol_pct, 1),
+            "ma10": _round(r["ma10"]) if pd.notna(r["ma10"]) else None,
+            "ma40": _round(r["ma40"]) if pd.notna(r["ma40"]) else None,
+        })
+
+    ma10 = _series_to_points(wk["ma10"])
+    ma40 = _series_to_points(wk["ma40"])
 
     # the user's own trades on this ticker, snapped onto weekly bars
     weekly_index = pd.DatetimeIndex(wk.index)
@@ -88,12 +125,12 @@ def compute_stock(ticker, uid):
             })
     markers.sort(key=lambda m: m["time"])
 
-    last_close = _round(float(s.iloc[-1]))
     return {
         "ticker": ticker, "has_data": bool(candles),
-        "last": last_close,
-        "asof": s.index.max().strftime("%Y-%m-%d"),
-        "candles": candles, "ma10": ma10, "ma40": ma40, "markers": markers,
+        "last": _round(float(df["close"].iloc[-1])),
+        "asof": df.index.max().strftime("%Y-%m-%d"),
+        "candles": candles, "ma10": ma10, "ma40": ma40,
+        "volume": volume, "bars": bars, "markers": markers,
     }
 
 

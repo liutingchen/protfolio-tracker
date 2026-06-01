@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS price_cache (
     ticker TEXT NOT NULL,
     date   TEXT NOT NULL,
     close  REAL NOT NULL,
+    open   REAL,
+    high   REAL,
+    low    REAL,
+    volume REAL,
     PRIMARY KEY (ticker, date)
 );
 
@@ -104,6 +108,9 @@ def init_db():
         if not _column_exists(conn, "users", "email_verified"):
             conn.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
             conn.execute("UPDATE users SET email_verified = 1")  # grandfather existing accounts
+        for col in ("open", "high", "low", "volume"):   # OHLCV columns added later
+            if not _column_exists(conn, "price_cache", col):
+                conn.execute(f"ALTER TABLE price_cache ADD COLUMN {col} REAL")
         _migrate_orphans(conn)
         conn.commit()
 
@@ -404,6 +411,7 @@ def clear_trades(portfolio_id: int):
 # ---- price cache (shared across users) -------------------------------------
 
 def get_cached_prices(ticker: str):
+    """{date: close} — close-only, used by portfolio valuation."""
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT date, close FROM price_cache WHERE ticker = ? ORDER BY date",
@@ -411,12 +419,38 @@ def get_cached_prices(ticker: str):
     return {r["date"]: r["close"] for r in rows}
 
 
-def store_prices(ticker: str, series: dict, source: str):
+def get_cached_ohlcv(ticker: str):
+    """{date: {open, high, low, close, volume}} — full bars where available
+    (open/high/low/volume may be None for legacy close-only rows)."""
     with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT date, open, high, low, close, volume FROM price_cache "
+            "WHERE ticker = ? ORDER BY date", (ticker,)).fetchall()
+    return {r["date"]: {"open": r["open"], "high": r["high"], "low": r["low"],
+                        "close": r["close"], "volume": r["volume"]} for r in rows}
+
+
+def store_prices(ticker: str, series: dict, source: str):
+    """series values may be a float close, or a dict {close[,open,high,low,volume]}."""
+    rows = []
+    for d, v in series.items():
+        if isinstance(v, dict):
+            rows.append((ticker, d, v.get("close"), v.get("open"),
+                         v.get("high"), v.get("low"), v.get("volume")))
+        else:
+            rows.append((ticker, d, v, None, None, None, None))
+    with get_conn() as conn:
+        # COALESCE keeps any existing OHLV when a later write supplies only close
         conn.executemany(
-            "INSERT INTO price_cache(ticker, date, close) VALUES (?, ?, ?) "
-            "ON CONFLICT(ticker, date) DO UPDATE SET close = excluded.close",
-            [(ticker, d, c) for d, c in series.items()])
+            "INSERT INTO price_cache(ticker, date, close, open, high, low, volume) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(ticker, date) DO UPDATE SET "
+            "close=excluded.close, "
+            "open=COALESCE(excluded.open, price_cache.open), "
+            "high=COALESCE(excluded.high, price_cache.high), "
+            "low=COALESCE(excluded.low, price_cache.low), "
+            "volume=COALESCE(excluded.volume, price_cache.volume)",
+            rows)
         conn.execute(
             "INSERT INTO price_meta(ticker, last_fetched, source) "
             "VALUES (?, datetime('now'), ?) "

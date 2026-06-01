@@ -41,18 +41,18 @@ _SA_SESSION.headers.update({"User-Agent": UA, "Accept": "application/json"})
 
 
 def _fetch_stockanalysis(ticker, start, end):
-    """stockanalysis.com — keyless daily closes. Robust default.
+    """stockanalysis.com — keyless daily OHLCV. Robust default.
 
-    Uses the `type=chart` endpoint: array rows [epoch_ms, close] covering full
-    history up to the latest trading day. (The older `period=Daily` form now
-    returns ~10-year-stale data, so we avoid it.)
+    Uses the `period=Daily` endpoint, which returns full bars
+    {t,o,h,l,c,v,a} (a = split/div-adjusted close) up to the latest trading
+    day. Returns {date: {open,high,low,close,volume}}.
 
     Retries transient failures (429/5xx/empty) with backoff, since a burst of
     cold fetches can briefly rate-limit us.
     """
     for kind in ("s", "e"):  # 's' = stock, 'e' = ETF
         url = (f"https://stockanalysis.com/api/symbol/{kind}/{ticker}"
-               f"/history?type=chart&range=10Y")
+               f"/history?range=10Y&period=Daily")
         data = None
         for attempt in range(3):
             try:
@@ -60,9 +60,9 @@ def _fetch_stockanalysis(ticker, start, end):
                 if r.status_code == 200:
                     j = r.json()
                     data = j.get("data")
-                    if isinstance(data, list) and data:
+                    if isinstance(data, list) and data and isinstance(data[0], dict):
                         break
-                    data = None  # empty -> retry
+                    data = None  # empty/unexpected -> retry
                 elif r.status_code in (429, 500, 502, 503, 504):
                     pass         # transient -> retry
                 else:
@@ -70,20 +70,24 @@ def _fetch_stockanalysis(ticker, start, end):
             except Exception:
                 pass
             time.sleep(0.6 * (attempt + 1))   # 0.6s, 1.2s backoff
-        if not isinstance(data, list) or not data:
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
             continue
         out = {}
         for row in data:
-            try:
-                if isinstance(row, dict):          # {"t": "YYYY-MM-DD", "c": ...}
-                    d, px = str(row.get("t")), row.get("a", row.get("c"))
-                else:                              # [epoch_ms, close]
-                    d = dt.datetime.utcfromtimestamp(row[0] / 1000).strftime("%Y-%m-%d")
-                    px = row[1]
-            except (TypeError, IndexError, ValueError):
+            d = str(row.get("t"))
+            c = row.get("c")
+            if not d or c is None or not (start <= d <= end):
                 continue
-            if d and px is not None and start <= d <= end:
-                out[d] = float(px)
+            try:
+                out[d] = {
+                    "close": float(c),
+                    "open": float(row["o"]) if row.get("o") is not None else None,
+                    "high": float(row["h"]) if row.get("h") is not None else None,
+                    "low": float(row["l"]) if row.get("l") is not None else None,
+                    "volume": float(row["v"]) if row.get("v") is not None else None,
+                }
+            except (TypeError, ValueError):
+                continue
         if out:
             return out
     return None

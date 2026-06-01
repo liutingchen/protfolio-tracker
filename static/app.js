@@ -212,6 +212,7 @@ function renderStockChart(d) {
     timeScale: { borderColor: "#2a2f36", rightOffset: 4 },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
   });
+  stockChart.priceScale("right").applyOptions({ scaleMargins: { top: 0.08, bottom: 0.26 } });
   const candle = stockChart.addCandlestickSeries({
     upColor: "#26a69a", downColor: "#ef5350", borderUpColor: "#26a69a",
     borderDownColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350",
@@ -225,32 +226,50 @@ function renderStockChart(d) {
     const s = stockChart.addLineSeries({ color: "#ff9800", lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false });
     s.setData(d.ma40);
   }
+  if (d.volume && d.volume.length) {
+    const v = stockChart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
+    v.setData(d.volume);
+    stockChart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  }
   if (d.markers && d.markers.length) candle.setMarkers(d.markers);
   setupStockBox(host, d);
   stockChart.timeScale().fitContent();
 }
 
+function fmtVol(v) {
+  if (v == null) return "—";
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + "K";
+  return String(Math.round(v));
+}
 function setupStockBox(host, d) {
   const box = $("stockBox");
-  const bars = {}; d.candles.forEach((b) => { bars[b.time] = b; });
-  const ma10 = {}; d.ma10.forEach((p) => { ma10[p.time] = p.value; });
-  const ma40 = {}; d.ma40.forEach((p) => { ma40[p.time] = p.value; });
-  const times = d.candles.map((b) => b.time);
-  const prevClose = {}; let pc = null;
-  times.forEach((t) => { prevClose[t] = pc; pc = bars[t].close; });
+  const bars = {}; (d.bars || []).forEach((b) => { bars[b.time] = b; });
+  const times = (d.bars || []).map((b) => b.time);
   const fmt = (v) => (v == null ? "—" : "$" + nf.format(v));
+  const signPctV = (v) => (v == null ? "—" : (v >= 0 ? "+" : "") + nf.format(v) + "%");
+  const cls = (v) => (v == null ? "" : v >= 0 ? "pos" : "neg");
+  const row = (k, v, kc, vc) =>
+    `<div class="db-row"><span class="db-k" ${kc ? `style="color:${kc}"` : ""}>${k}</span>` +
+    `<span class="db-v ${vc || ""}">${v}</span></div>`;
+  const distPct = (price, ma) => (ma && price != null) ? ((price - ma) / ma * 100) : null;
   const render = (time) => {
     const b = bars[time]; if (!b) { box.hidden = true; return; }
-    const pcv = prevClose[time];
-    const chgPct = (pcv != null && pcv !== 0) ? ((b.close - pcv) / pcv * 100) : null;
-    const cls = chgPct == null ? "" : (chgPct >= 0 ? "pos" : "neg");
-    const row = (k, v, kc, vc) =>
-      `<div class="db-row"><span class="db-k" ${kc ? `style="color:${kc}"` : ""}>${k}</span><span class="db-v ${vc || ""}">${v}</span></div>`;
-    box.innerHTML = row("Date", time) + row("Open", fmt(b.open)) + row("High", fmt(b.high)) +
+    let html = row("Date", time) + row("Open", fmt(b.open)) + row("High", fmt(b.high)) +
       row("Low", fmt(b.low)) + row("Close", fmt(b.close)) +
-      row("% Chg", chgPct == null ? "—" : (chgPct >= 0 ? "+" : "") + nf.format(chgPct) + "%", null, cls) +
-      `<div class="db-sep"></div>` + row("SMA(10)", fmt(ma10[time]), "#2962ff") +
-      row("SMA(40)", fmt(ma40[time]), "#ff9800");
+      row("% Chg", signPctV(b.chg_pct), null, cls(b.chg_pct)) +
+      row("Cls Range", b.cls_range == null ? "—" : nf.format(b.cls_range) + "%") +
+      row("Vol", fmtVol(b.volume)) +
+      row("Vol %", signPctV(b.vol_pct), null, cls(b.vol_pct)) +
+      `<div class="db-sep"></div>`;
+    // SMA with distance-from-price, MarketSurge style: "105.04 +1.7%"
+    const d10 = distPct(b.close, b.ma10), d40 = distPct(b.close, b.ma40);
+    html += row("SMA(10)", b.ma10 == null ? "—" :
+      `${fmt(b.ma10)} <span class="${cls(d10)}">${signPctV(d10)}</span>`, "#2962ff");
+    html += row("SMA(40)", b.ma40 == null ? "—" :
+      `${fmt(b.ma40)} <span class="${cls(d40)}">${signPctV(d40)}</span>`, "#ff9800");
+    box.innerHTML = html;
     box.hidden = false;
   };
   const latest = times[times.length - 1];
