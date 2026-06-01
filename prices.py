@@ -28,10 +28,15 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
 #  Providers — each returns {date_str: close_float} or None
 # --------------------------------------------------------------------------- #
 def _fetch_stockanalysis(ticker, start, end):
-    """stockanalysis.com — keyless, adjusted daily closes. Robust default."""
+    """stockanalysis.com — keyless daily closes. Robust default.
+
+    Uses the `type=chart` endpoint: array rows [epoch_ms, close] covering full
+    history up to the latest trading day. (The older `period=Daily` form now
+    returns ~10-year-stale data, so we avoid it.)
+    """
     for kind in ("s", "e"):  # 's' = stock, 'e' = ETF
         url = (f"https://stockanalysis.com/api/symbol/{kind}/{ticker}"
-               f"/history?range=10Y&period=Daily")
+               f"/history?type=chart&range=10Y")
         try:
             r = requests.get(url, timeout=25, headers={"User-Agent": UA})
             if r.status_code != 200:
@@ -40,16 +45,20 @@ def _fetch_stockanalysis(ticker, start, end):
         except Exception:
             continue
         data = j.get("data")
-        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        if not isinstance(data, list) or not data:
             continue
         out = {}
         for row in data:
-            d = row.get("t")
-            px = row.get("a")
-            if px is None:
-                px = row.get("c")
-            if d and px is not None and start <= str(d) <= end:
-                out[str(d)] = float(px)
+            try:
+                if isinstance(row, dict):          # {"t": "YYYY-MM-DD", "c": ...}
+                    d, px = str(row.get("t")), row.get("a", row.get("c"))
+                else:                              # [epoch_ms, close]
+                    d = dt.datetime.utcfromtimestamp(row[0] / 1000).strftime("%Y-%m-%d")
+                    px = row[1]
+            except (TypeError, IndexError, ValueError):
+                continue
+            if d and px is not None and start <= d <= end:
+                out[d] = float(px)
         if out:
             return out
     return None
@@ -189,8 +198,15 @@ def _needs_refetch(cached, start, end):
     cmin, cmax = min(cached), max(cached)
     if cmin > start:
         return True
-    end_d = dt.date.fromisoformat(end)
-    if dt.date.fromisoformat(cmax) < end_d - dt.timedelta(days=4):
+    # Refetch when the cache falls behind the last *completed* trading day, so
+    # prices advance ~daily on their own. Target = the last weekday strictly
+    # before today; this gives one full day of grace so a normal page load
+    # doesn't refetch repeatedly while today's close hasn't been published yet
+    # (which would hammer the source). Use 刷新股价 for the immediate latest.
+    target = dt.date.fromisoformat(end) - dt.timedelta(days=1)
+    while target.weekday() >= 5:                # Sat/Sun -> back to Friday
+        target -= dt.timedelta(days=1)
+    if dt.date.fromisoformat(cmax) < target:
         return True
     return False
 
