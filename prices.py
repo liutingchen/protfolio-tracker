@@ -27,24 +27,40 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
 # --------------------------------------------------------------------------- #
 #  Providers — each returns {date_str: close_float} or None
 # --------------------------------------------------------------------------- #
+_SA_SESSION = requests.Session()
+_SA_SESSION.headers.update({"User-Agent": UA, "Accept": "application/json"})
+
+
 def _fetch_stockanalysis(ticker, start, end):
     """stockanalysis.com — keyless daily closes. Robust default.
 
     Uses the `type=chart` endpoint: array rows [epoch_ms, close] covering full
     history up to the latest trading day. (The older `period=Daily` form now
     returns ~10-year-stale data, so we avoid it.)
+
+    Retries transient failures (429/5xx/empty) with backoff, since a burst of
+    cold fetches can briefly rate-limit us.
     """
     for kind in ("s", "e"):  # 's' = stock, 'e' = ETF
         url = (f"https://stockanalysis.com/api/symbol/{kind}/{ticker}"
                f"/history?type=chart&range=10Y")
-        try:
-            r = requests.get(url, timeout=25, headers={"User-Agent": UA})
-            if r.status_code != 200:
-                continue
-            j = r.json()
-        except Exception:
-            continue
-        data = j.get("data")
+        data = None
+        for attempt in range(3):
+            try:
+                r = _SA_SESSION.get(url, timeout=20)
+                if r.status_code == 200:
+                    j = r.json()
+                    data = j.get("data")
+                    if isinstance(data, list) and data:
+                        break
+                    data = None  # empty -> retry
+                elif r.status_code in (429, 500, 502, 503, 504):
+                    pass         # transient -> retry
+                else:
+                    break        # 404 etc. -> try the other kind
+            except Exception:
+                pass
+            time.sleep(0.6 * (attempt + 1))   # 0.6s, 1.2s backoff
         if not isinstance(data, list) or not data:
             continue
         out = {}
@@ -229,14 +245,16 @@ def _fetch_one(ticker, start, end):
     return None, None
 
 
-def get_daily_closes(tickers, start, end, force=False):
+def get_daily_closes(tickers, start, end, force=False, budget=None):
     """Return ({ticker: pd.Series indexed by Timestamp}, {ticker: error_msg}).
 
-    Fetching is bounded by FETCH_BUDGET_S: tickers with NO cache are fetched
-    first (they'd otherwise be blank), then merely-stale ones, until the budget
-    runs out. Whatever is cached (fresh or stale) is always returned so the
-    chart renders instead of hanging.
+    Fetching is bounded by `budget` seconds (default FETCH_BUDGET_S): tickers
+    with NO cache are fetched first (they'd otherwise be blank), then merely-
+    stale ones, until the budget runs out. Whatever is cached (fresh or stale)
+    is always returned so the chart renders instead of hanging.
     """
+    if budget is None:
+        budget = FETCH_BUDGET_S
     result, errors = {}, {}
     cache = {t.upper(): db.get_cached_prices(t.upper()) for t in tickers}
 
@@ -248,9 +266,9 @@ def get_daily_closes(tickers, start, end, force=False):
         elif _needs_refetch(cached, start, end):
             need_stale.append(t)
 
-    deadline = time.monotonic() + FETCH_BUDGET_S
+    deadline = time.monotonic() + budget
     for t in need_empty + need_stale:
-        if FETCH_BUDGET_S <= 0 or time.monotonic() >= deadline:
+        if budget <= 0 or time.monotonic() >= deadline:
             break
         fetched, source = _fetch_one(t, start, end)
         if fetched:

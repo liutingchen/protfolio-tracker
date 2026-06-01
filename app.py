@@ -526,9 +526,27 @@ def update_settings():
 @app.post("/api/refresh-prices")
 @login_required
 def refresh_prices():
-    data = request.get_json(force=True, silent=True) or {}
-    db.clear_price_cache(data.get("ticker"))
-    return jsonify({"ok": True})
+    """Force-refetch the active portfolio's tickers, overwriting on success.
+
+    We do NOT clear the cache first: store_prices upserts, so a ticker keeps its
+    existing data if the refetch fails (avoids the 'blank after refresh' trap).
+    """
+    import datetime as _dt
+    import portfolio as _pf
+    import prices as _prices
+
+    uid = _uid()
+    trades = (db.list_all_trades(uid) if _scope() == "all"
+              else db.list_trades(db.get_active_portfolio_id(uid)))
+    tickers = sorted({t["ticker"].upper() for t in trades})
+    if not tickers:
+        return jsonify({"ok": True, "refreshed": 0})
+    start = min(t["date"] for t in trades)
+    end = _dt.date.today().isoformat()
+    # explicit refresh: allow more time so all tickers get re-fetched
+    _, errors = _prices.get_daily_closes(tickers, start, end, force=True, budget=60)
+    return jsonify({"ok": True, "refreshed": len(tickers) - len(errors),
+                    "failed": sorted(errors.keys())})
 
 
 @app.post("/api/clear")
