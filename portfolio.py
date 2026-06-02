@@ -403,8 +403,22 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         h["risk_8pct"] = _round((w * STOP / 100.0) if w is not None else None, 2)
 
     # ---- daily change + after-hours per holding ----------------------------
-    # Valuation/day-change use the regular close. After-hours is tracked
-    # separately (ext_*) and surfaced as its own line, never mixed into totals.
+    # Broker-correct day P&L: shares held coming into today are marked from the
+    # prior close; shares TRADED today are marked from their actual trade price
+    # (so a position you bought today only counts the move since you bought it —
+    # not the whole day's move you didn't participate in).
+    #   day P&L = current_value - prior_close_value - net_cash_spent_today
+    #           = pos*last - pos_yest*prev_close - (today_buys$ - today_sells$)
+    today_ts = pd.Timestamp(dt.date.today())
+    today_grp = df[df["date"] == today_ts].groupby("ticker")
+    # net shares bought today, and net $ spent on today's trades (buys +, sells -)
+    today_net_sh = (today_grp.apply(lambda g: (g.loc[g["side"] == "buy", "shares"].sum()
+                                               - g.loc[g["side"] == "sell", "shares"].sum()))
+                    if len(df[df["date"] == today_ts]) else pd.Series(dtype="float64"))
+    today_net_cash = (today_grp.apply(lambda g: (g.loc[g["side"] == "buy", "notional"].sum()
+                                                 - g.loc[g["side"] == "sell", "notional"].sum()))
+                      if len(df[df["date"] == today_ts]) else pd.Series(dtype="float64"))
+
     day_chg_total = 0.0
     ext_chg_total = 0.0
     for h in holdings:
@@ -412,11 +426,17 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         shares = h["shares"] or 0
         pc = q.get("prev_close") if q else None
         last = h["last_price"]            # regular-session close
-        # regular-session day change (close vs prev close)
         if pc and last is not None:
-            day_chg = (last - pc) * shares
+            net_sh_today = float(today_net_sh.get(h["ticker"], 0.0) or 0.0)
+            net_cash_today = float(today_net_cash.get(h["ticker"], 0.0) or 0.0)
+            pos_yest = shares - net_sh_today          # shares held coming into today
+            cur_value = last * shares
+            prior_value = pc * pos_yest
+            day_chg = cur_value - prior_value - net_cash_today
             h["day_chg"] = _round(day_chg, 2)
-            h["day_chg_pct"] = _round((last - pc) / pc * 100.0, 2)
+            # % is vs the day's starting basis (prior close value + cash put in today)
+            basis = prior_value + max(net_cash_today, 0.0)
+            h["day_chg_pct"] = _round((day_chg / basis * 100.0) if basis > 1e-9 else None, 2)
             day_chg_total += day_chg
         else:
             h["day_chg"] = None
