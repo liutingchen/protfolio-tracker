@@ -291,6 +291,13 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         daily_index = pd.bdate_range(start, end)
         warnings.append("No price data for any ticker — chart shows cash flow only.")
     first_trade = df["date"].min()
+    # Always include every business day from the first trade through today, even
+    # if historical price data hasn't published the current week yet — those
+    # days are valued with the latest known price (forward-filled below). This
+    # keeps the account curve continuous from the first trade onward instead of
+    # collapsing to one stub bar when holdings were just imported this week.
+    bdays = pd.bdate_range(first_trade, pd.Timestamp(end))
+    daily_index = daily_index.union(bdays)
     daily_index = daily_index[(daily_index >= first_trade) &
                               (daily_index <= pd.Timestamp(end))]
     daily_index = pd.DatetimeIndex(pd.Series(daily_index).sort_values().unique())
