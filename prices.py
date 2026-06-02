@@ -283,8 +283,14 @@ def _fetch_quote(ticker):
             bar = {"close": px, "open": _f(d.get("o")), "high": _f(d.get("h")),
                    "low": _f(d.get("l")), "volume": _f(d.get("v"))}
             fms = d.get("fms")
-            session = ("pre" if fms == "pre" else "post" if fms == "post"
-                       else "regular")
+            es = (d.get("es") or "").lower()      # "pre-market" / "after-hours"
+            # session from fms; cross-check with the human label es for safety
+            if fms == "pre" or "pre" in es:
+                session = "pre"
+            elif fms == "post" or "after" in es or "post" in es:
+                session = "post"
+            else:
+                session = "regular"
             has_ext = bool(d.get("e")) and session in ("pre", "post")
             meta = {
                 "price": px,
