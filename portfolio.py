@@ -421,19 +421,25 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         else:
             h["day_chg"] = None
             h["day_chg_pct"] = None
-        # extended-hours, shown SEPARATELY (not in totals): price, % move vs
-        # the regular close, and the $ P&L of that after-hours move.
-        if q and q.get("ext_price") is not None:
+        # extended-hours, shown as a sub-row under price/market-value/unrealized
+        # (never mixed into the regular-close totals). ext_mv / ext_unreal are
+        # the after-hours market value and unrealized P&L valued at the ext price.
+        if q and q.get("ext_price") is not None and last is not None:
             ext = q["ext_price"]
             h["ext_price"] = _round(ext, 4)
             h["ext_chg_pct"] = _round(q.get("ext_chg_pct"), 2)
             h["session"] = q.get("session")
-            h["ext_chg"] = _round((ext - last) * shares, 2) if last is not None else None
+            h["ext_chg"] = _round((ext - last) * shares, 2)          # after-hours $ move
+            h["ext_mv"] = _round(ext * shares, 2)                     # market value @ ext
+            base_cost = (h["avg_cost"] or 0) * shares
+            h["ext_unreal"] = _round(ext * shares - base_cost, 2)     # unrealized @ ext
             ext_chg_total += h["ext_chg"] or 0
         else:
             h["ext_price"] = None
             h["ext_chg_pct"] = None
             h["ext_chg"] = None
+            h["ext_mv"] = None
+            h["ext_unreal"] = None
             h["session"] = (q.get("session") if q else None)
 
     buy_cost = float(df.loc[df["side"] == "buy", "notional"].sum() +
@@ -457,11 +463,21 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         "day_pnl": _round(day_chg_total, 2),
         "day_pnl_pct": _round((day_chg_total / (total_value - day_chg_total) * 100.0)
                               if (total_value - day_chg_total) else None, 2),
-        # after-hours account P&L (move from regular close), shown separately
-        "ext_pnl": _round(ext_chg_total, 2) if ext_chg_total else None,
-        "ext_pnl_pct": _round((ext_chg_total / total_value * 100.0)
-                              if (total_value and ext_chg_total) else None, 2),
     }
+
+    # ---- after-hours-inclusive versions (shown as sub-rows, not new columns) -
+    if ext_chg_total:
+        ext_total_value = total_value + ext_chg_total       # account value incl. after-hours
+        # 当日盈亏(含盘后) = today's change + after-hours move
+        day_ext = day_chg_total + ext_chg_total
+        totals["day_pnl_ext"] = _round(day_ext, 2)
+        totals["day_pnl_ext_pct"] = _round(
+            (day_ext / (ext_total_value - day_ext) * 100.0)
+            if (ext_total_value - day_ext) else None, 2)
+        # 累计盈亏(含盘后) = cumulative P&L + after-hours move
+        totals["total_pnl_ext"] = _round(total_pnl + ext_chg_total, 2)
+        # 市值(含盘后) for the holdings footer / market-value sub-row context
+        totals["market_value_ext"] = _round(mv_total + ext_chg_total, 2)
 
     # overall market status (from any quote meta — they share the session/market)
     _mkt = next(iter(db.get_quote_meta().values()), None)
