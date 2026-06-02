@@ -304,13 +304,9 @@ def _compute_series(trades, starting_capital, mode, pinfo):
     if len(daily_index) == 0:
         daily_index = pd.DatetimeIndex([first_trade])
 
-    # Extended-hours prices: when the market is in a pre/post session and a
-    # ticker has an extended-hours price, use it as THE current price. Every
-    # downstream figure (market value, unrealized, total P&L, return %, account
-    # value, today's change) then reflects the pre/post move automatically.
+    # All valuation uses the regular-session close. Extended-hours (pre/post)
+    # is shown separately as its own line, never mixed into the totals.
     qmeta = db.get_quote_meta()
-    ext_price = {t: qmeta[t]["ext_price"] for t in qmeta
-                 if qmeta[t].get("ext_price") is not None}
 
     # ---- daily holdings market value ---------------------------------------
     holdings_mv = pd.Series(0.0, index=daily_index)
@@ -331,10 +327,6 @@ def _compute_series(trades, starting_capital, mode, pinfo):
             p_daily = price_series[t].reindex(
                 price_series[t].index.union(daily_index)).ffill().bfill()
             p_daily = p_daily.reindex(daily_index)
-            # override the latest point with the extended-hours price
-            if t in ext_price and len(p_daily):
-                price_today[t] = float(ext_price[t])
-                p_daily.iloc[-1] = float(ext_price[t])
         else:
             p_daily = pd.Series(float("nan"), index=daily_index)
         holdings_mv = holdings_mv.add((shares_daily * p_daily).fillna(0.0),
@@ -411,15 +403,16 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         h["risk_8pct"] = _round((w * STOP / 100.0) if w is not None else None, 2)
 
     # ---- daily change + after-hours per holding ----------------------------
-    # last_price here is already the extended-hours price when in a pre/post
-    # session (set above), so day change = (ext or close) - prev close, i.e. it
-    # naturally includes the pre/post move.
+    # Valuation/day-change use the regular close. After-hours is tracked
+    # separately (ext_*) and surfaced as its own line, never mixed into totals.
     day_chg_total = 0.0
+    ext_chg_total = 0.0
     for h in holdings:
         q = qmeta.get(h["ticker"])
         shares = h["shares"] or 0
         pc = q.get("prev_close") if q else None
-        last = h["last_price"]            # = ext price if pre/post, else close
+        last = h["last_price"]            # regular-session close
+        # regular-session day change (close vs prev close)
         if pc and last is not None:
             day_chg = (last - pc) * shares
             h["day_chg"] = _round(day_chg, 2)
@@ -428,14 +421,19 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         else:
             h["day_chg"] = None
             h["day_chg_pct"] = None
-        # extended-hours info for the sub-line (price + its move vs reg close)
+        # extended-hours, shown SEPARATELY (not in totals): price, % move vs
+        # the regular close, and the $ P&L of that after-hours move.
         if q and q.get("ext_price") is not None:
-            h["ext_price"] = _round(q["ext_price"], 4)
+            ext = q["ext_price"]
+            h["ext_price"] = _round(ext, 4)
             h["ext_chg_pct"] = _round(q.get("ext_chg_pct"), 2)
             h["session"] = q.get("session")
+            h["ext_chg"] = _round((ext - last) * shares, 2) if last is not None else None
+            ext_chg_total += h["ext_chg"] or 0
         else:
             h["ext_price"] = None
             h["ext_chg_pct"] = None
+            h["ext_chg"] = None
             h["session"] = (q.get("session") if q else None)
 
     buy_cost = float(df.loc[df["side"] == "buy", "notional"].sum() +
@@ -455,10 +453,14 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         # exposure rollups
         "invested_pct": _round(sum((h["weight"] or 0) for h in holdings), 2),
         "total_risk_8pct": _round(sum((h["risk_8pct"] or 0) for h in holdings), 2),
-        # today's account P&L (sum of per-holding (last - prev_close) * shares)
+        # today's account P&L (sum of per-holding (close - prev_close) * shares)
         "day_pnl": _round(day_chg_total, 2),
         "day_pnl_pct": _round((day_chg_total / (total_value - day_chg_total) * 100.0)
                               if (total_value - day_chg_total) else None, 2),
+        # after-hours account P&L (move from regular close), shown separately
+        "ext_pnl": _round(ext_chg_total, 2) if ext_chg_total else None,
+        "ext_pnl_pct": _round((ext_chg_total / total_value * 100.0)
+                              if (total_value and ext_chg_total) else None, 2),
     }
 
     # overall market status (from any quote meta — they share the session/market)

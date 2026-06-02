@@ -141,6 +141,12 @@ function renderStats(t, ch) {
     ["账户总值", fmtMoney(t.total_value), "", ""],
     ["当日盈亏", t.day_pnl == null ? "—" : signMoney(t.day_pnl) + (t.day_pnl_pct == null ? "" : ` (${signPct(t.day_pnl_pct)})`),
       t.day_pnl == null ? "" : cls(t.day_pnl), ""],
+  ];
+  if (t.ext_pnl != null) {
+    items.push(["盘后盈亏", signMoney(t.ext_pnl) + (t.ext_pnl_pct == null ? "" : ` (${signPct(t.ext_pnl_pct)})`),
+      cls(t.ext_pnl), ""]);
+  }
+  items.push(
     ["累计盈亏", signMoney(t.total_pnl), cls(t.total_pnl), ""],
     ["收益率", signPct(t.return_pct), t.return_pct == null ? "" : cls(t.return_pct), ""],
     ["已实现盈亏", signMoney(t.realized_pnl), cls(t.realized_pnl), ""],
@@ -148,7 +154,7 @@ function renderStats(t, ch) {
     ["持仓市值", fmtMoney(t.market_value), "", ""],
     ["现金", fmtMoney(t.cash), "", "cash"],
     ["持仓数", t.num_positions, "", ""],
-  ];
+  );
   // remember the current cash so the editor can prefill it
   state.currentCash = t.cash;
   bar.innerHTML = items.map(([k, v, c, kind]) => {
@@ -200,9 +206,9 @@ function renderHoldings(holdings, totals) {
     holdings.map((h) => {
       const c = (h.unrealized || 0) >= 0 ? "pos" : "neg";
       const dc = (h.day_chg || 0) >= 0 ? "pos" : "neg";
-      // current price already reflects the pre/post price; the sub-line just
-      // labels the session + its move vs the regular close
-      const ext = (h.ext_price != null) ? `<div class="ext-px ${(h.ext_chg_pct||0)>=0?'pos':'neg'}" title="${h.session === "pre" ? "盘前" : "盘后"}相对收盘的变动">${h.session === "pre" ? "盘前" : "盘后"} ${signPct(h.ext_chg_pct)}</div>` : "";
+      // 现价列显示常规收盘价；盘前/盘后价单独一行显示（价格 + 涨跌%）
+      const sess = h.session === "pre" ? "盘前" : "盘后";
+      const ext = (h.ext_price != null) ? `<div class="ext-px ${(h.ext_chg_pct||0)>=0?'pos':'neg'}" title="${sess}价及相对收盘的涨跌">${sess} $${nf.format(h.ext_price)} ${signPct(h.ext_chg_pct)}</div>` : "";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
         <td>${h.shares}</td>
