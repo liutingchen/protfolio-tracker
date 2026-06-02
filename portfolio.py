@@ -304,14 +304,11 @@ def _compute_series(trades, starting_capital, mode, pinfo):
     if len(daily_index) == 0:
         daily_index = pd.DatetimeIndex([first_trade])
 
-    # During a pre/post session, value everything at the extended-hours price so
-    # the whole table shows one coherent "after-hours" figure (clearer when you
-    # bought during after-hours). Outside those sessions, use the regular close.
+    # All valuation uses the regular-session close. Pre/post is shown as a
+    # second line (like brokers: "Today" + "After-hours"), never mixed in.
     qmeta = db.get_quote_meta()
     _sess = next((qmeta[t].get("session") for t in qmeta), None)
     ext_active = _sess in ("pre", "post")
-    ext_price = {t: qmeta[t]["ext_price"] for t in qmeta
-                 if qmeta[t].get("ext_price") is not None} if ext_active else {}
 
     # ---- daily holdings market value ---------------------------------------
     holdings_mv = pd.Series(0.0, index=daily_index)
@@ -332,10 +329,6 @@ def _compute_series(trades, starting_capital, mode, pinfo):
             p_daily = price_series[t].reindex(
                 price_series[t].index.union(daily_index)).ffill().bfill()
             p_daily = p_daily.reindex(daily_index)
-            # in a pre/post session, the current price IS the extended price
-            if t in ext_price and len(p_daily):
-                price_today[t] = float(ext_price[t])
-                p_daily.iloc[-1] = float(ext_price[t])
         else:
             p_daily = pd.Series(float("nan"), index=daily_index)
         holdings_mv = holdings_mv.add((shares_daily * p_daily).fillna(0.0),
@@ -429,6 +422,7 @@ def _compute_series(trades, starting_capital, mode, pinfo):
                       if len(df[df["date"] == today_ts]) else pd.Series(dtype="float64"))
 
     day_chg_total = 0.0
+    ext_chg_total = 0.0
     for h in holdings:
         q = qmeta.get(h["ticker"])
         shares = h["shares"] or 0
@@ -449,13 +443,26 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         else:
             h["day_chg"] = None
             h["day_chg_pct"] = None
-        # During pre/post, last_price/market_value/unrealized/day_chg above are
-        # ALREADY the extended-hours figures (single row, no separate sub-line).
-        # Keep session + the ext %% move (vs regular close) for a small label.
+        # Pre/post shown as a SECOND line (broker style: "Today" + "After-hours").
+        # The after-hours line = just the extended-session segment:
+        #   ext_price = the pre/post price
+        #   ext_chg   = (ext_price - regular_close) * shares   ($ for the period)
+        #   ext_chg_pct = % move of the extended session vs the regular close
         h["session"] = q.get("session") if q else None
-        h["is_ext"] = bool(ext_active and h["ticker"] in ext_price)
-        h["ext_chg_pct"] = (_round(q.get("ext_chg_pct"), 2)
-                            if (h["is_ext"] and q) else None)
+        ep = q.get("ext_price") if q else None
+        if ext_active and ep is not None and last is not None:
+            h["ext_price"] = _round(ep, 4)
+            h["ext_chg_pct"] = _round(q.get("ext_chg_pct"), 2)
+            h["ext_chg"] = _round((ep - last) * shares, 2)          # 当日列的盘后行 ($)
+            h["ext_mv"] = _round(ep * shares, 2)                     # 市值列的盘后行
+            h["ext_unreal"] = _round(ep * shares - (h["avg_cost"] or 0) * shares, 2)  # 浮动列的盘后行
+            ext_chg_total += (ep - last) * shares
+        else:
+            h["ext_price"] = None
+            h["ext_chg_pct"] = None
+            h["ext_chg"] = None
+            h["ext_mv"] = None
+            h["ext_unreal"] = None
 
     buy_cost = float(df.loc[df["side"] == "buy", "notional"].sum() +
                      df.loc[df["side"] == "buy", "fees"].sum())
@@ -474,13 +481,19 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         # exposure rollups
         "invested_pct": _round(sum((h["weight"] or 0) for h in holdings), 2),
         "total_risk_8pct": _round(sum((h["risk_8pct"] or 0) for h in holdings), 2),
-        # today's account P&L. During pre/post this is already the after-hours
-        # figure (valuation uses the ext price), so no separate ext totals.
+        # today's account P&L (regular session: close vs prev close)
         "day_pnl": _round(day_chg_total, 2),
         "day_pnl_pct": _round((day_chg_total / (total_value - day_chg_total) * 100.0)
                               if (total_value - day_chg_total) else None, 2),
-        "is_ext": ext_active,   # whether figures reflect a pre/post session
+        "is_ext": ext_active,   # a pre/post session is active -> show 2nd line
     }
+    # after-hours SECOND line (broker style): the extended segment only.
+    if ext_active and ext_chg_total:
+        totals["ext_pnl"] = _round(ext_chg_total, 2)               # 当日行下的盘后行
+        totals["ext_pnl_pct"] = _round((ext_chg_total / total_value * 100.0)
+                                       if total_value else None, 2)
+        totals["market_value_ext"] = _round(mv_total + ext_chg_total, 2)
+        totals["total_value_ext"] = _round(total_value + ext_chg_total, 2)
 
     # overall market status (from any quote meta — they share the session/market)
     _mkt = next(iter(db.get_quote_meta().values()), None)
