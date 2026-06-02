@@ -378,6 +378,18 @@ def _compute_series(trades, starting_capital, mode, pinfo):
     cash = starting_capital + float(cf_daily.iloc[-1])
     total_value = cash + mv_total
     total_pnl = float(pnl_daily.iloc[-1])
+
+    # ---- position weight & O'Neil risk exposure ----------------------------
+    # weight    = position market value / total account value (cash + holdings)
+    # risk_8pct = account % lost if this stock drops 8% (= weight * 8%), i.e.
+    #             the portfolio "heat" this position carries at an 8% stop.
+    STOP = 8.0
+    base = total_value if total_value and total_value > 0 else mv_total
+    for h in holdings:
+        mv = h["market_value"] or 0
+        w = (mv / base * 100.0) if base and base > 0 else None
+        h["weight"] = _round(w, 2)
+        h["risk_8pct"] = _round((w * STOP / 100.0) if w is not None else None, 2)
     buy_cost = float(df.loc[df["side"] == "buy", "notional"].sum() +
                      df.loc[df["side"] == "buy", "fees"].sum())
     invested = starting_capital if starting_capital > 0 else buy_cost
@@ -392,6 +404,9 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         "return_pct": _round((total_pnl / invested * 100) if invested > 0 else None),
         "num_trades": len(df),
         "num_positions": len(holdings),
+        # exposure rollups
+        "invested_pct": _round(sum((h["weight"] or 0) for h in holdings), 2),
+        "total_risk_8pct": _round(sum((h["risk_8pct"] or 0) for h in holdings), 2),
     }
 
     return {

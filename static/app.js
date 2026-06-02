@@ -70,7 +70,7 @@ async function load() {
     state.data = ch;
     syncToolbar(ch);
     renderStats(ch.stats && ch.stats.totals, ch);
-    renderHoldings((ch.stats && ch.stats.holdings) || []);
+    renderHoldings((ch.stats && ch.stats.holdings) || [], (ch.stats && ch.stats.totals) || {});
     renderWarnings(ch);
     renderChart(ch, state.freq);
   } else {
@@ -157,11 +157,23 @@ async function editCash() {
   } catch (ex) { showToast(ex.message, false); }
 }
 
-function renderHoldings(holdings) {
+// Color the per-position 8% risk: a single position losing >2% of the whole
+// account at an 8% stop is a meaningful concentration warning (O'Neil-ish).
+function riskClass(r) {
+  if (r == null) return "";
+  if (r >= 2) return "neg";          // red: heavy single-name risk
+  if (r >= 1.2) return "warn-amber"; // amber: getting concentrated
+  return "muted";
+}
+
+function renderHoldings(holdings, totals) {
   const box = $("holdings");
+  totals = totals || {};
   if (!holdings.length) { box.innerHTML = `<p class="empty-mini">暂无持仓。</p>`; return; }
   box.innerHTML = `<table><thead><tr>
       <th>代码</th><th>股数</th><th>均价</th><th>现价</th><th>市值</th><th>浮动盈亏</th>
+      <th title="该股市值占账户总值的比例">仓位占比</th>
+      <th title="若该股跌 8%（欧奈尔止损线），账户将损失的百分比">风险敞口<span class="th-sub">(-8%)</span></th>
     </tr></thead><tbody>` +
     holdings.map((h) => {
       const c = (h.unrealized || 0) >= 0 ? "pos" : "neg";
@@ -172,8 +184,15 @@ function renderHoldings(holdings) {
         <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}</td>
         <td>${fmtMoney(h.market_value)}</td>
         <td class="${c}">${signMoney(h.unrealized)} <span class="muted">(${signPct(h.unrealized_pct)})</span></td>
+        <td>${h.weight == null ? "—" : nf.format(h.weight) + "%"}<div class="weight-bar"><span style="width:${Math.min(h.weight || 0, 100)}%"></span></div></td>
+        <td class="${riskClass(h.risk_8pct)}">${h.risk_8pct == null ? "—" : "-" + nf.format(h.risk_8pct) + "%"}</td>
       </tr>`;
-    }).join("") + `</tbody></table>`;
+    }).join("") + `</tbody></table>` +
+    (totals.invested_pct == null ? "" :
+      `<div class="holdings-foot">
+         <span>持仓占用 <b>${nf.format(totals.invested_pct)}%</b>（现金 ${nf.format(Math.max(100 - (totals.invested_pct || 0), 0))}%）</span>
+         <span title="所有持仓各跌 8% 时，账户合计损失">组合总风险 <b class="${riskClass(totals.total_risk_8pct >= 6 ? 2 : totals.total_risk_8pct >= 4 ? 1.2 : 0)}">-${nf.format(totals.total_risk_8pct || 0)}%</b></span>
+       </div>`);
 }
 
 // ----- single-stock chart (weekly / daily) --------------------------------
