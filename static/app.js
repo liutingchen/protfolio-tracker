@@ -138,21 +138,20 @@ function renderStats(t, ch) {
   const bar = $("statsBar");
   if (!t || t.total_value == null) { bar.innerHTML = ""; return; }
   const cls = (v) => (v >= 0 ? "pos" : "neg");
-  const sess = t.is_ext ? (state._sess === "pre" ? "盘前" : "盘后") : "";
-  // broker-style after-hours 2nd line under a stat value
-  const extSub = (val, pct) => (val == null) ? "" :
-    `<div class="ext-sub ${cls(val)}">${sess} ${signMoney(val)}${pct == null ? "" : ` (${signPct(pct)})`}</div>`;
-  const extSubMoney = (val) => (val == null) ? "" :
-    `<div class="ext-sub">${sess} ${fmtMoney(val)}</div>`;
+  // include the after-hours segment in the account totals (single value),
+  // matching the holdings 当日/市值 columns. 现价-like detail stays per-holding.
+  const dayTot = (t.ext_pnl != null && t.day_pnl != null) ? t.day_pnl + t.ext_pnl : t.day_pnl;
+  const mvTot = (t.market_value_ext != null) ? t.market_value_ext : t.market_value;
+  const tvTot = (t.total_value_ext != null) ? t.total_value_ext : t.total_value;
+  const unrTot = (t.market_value_ext != null) ? t.unrealized_pnl + (t.market_value_ext - t.market_value) : t.unrealized_pnl;
   const items = [
-    ["账户总值", fmtMoney(t.total_value), "", "", extSubMoney(t.total_value_ext)],
-    ["当日盈亏", t.day_pnl == null ? "—" : signMoney(t.day_pnl) + (t.day_pnl_pct == null ? "" : ` (${signPct(t.day_pnl_pct)})`),
-      t.day_pnl == null ? "" : cls(t.day_pnl), "", extSub(t.ext_pnl, t.ext_pnl_pct)],
+    ["账户总值", fmtMoney(tvTot), "", "", ""],
+    ["当日盈亏", dayTot == null ? "—" : signMoney(dayTot), dayTot == null ? "" : cls(dayTot), "", ""],
     ["累计盈亏", signMoney(t.total_pnl), cls(t.total_pnl), "", ""],
     ["收益率", signPct(t.return_pct), t.return_pct == null ? "" : cls(t.return_pct), "", ""],
     ["已实现盈亏", signMoney(t.realized_pnl), cls(t.realized_pnl), "", ""],
-    ["未实现盈亏", signMoney(t.unrealized_pnl), cls(t.unrealized_pnl), "", ""],
-    ["持仓市值", fmtMoney(t.market_value), "", "", extSubMoney(t.market_value_ext)],
+    ["未实现盈亏", signMoney(unrTot), cls(unrTot), "", ""],
+    ["持仓市值", fmtMoney(mvTot), "", "", ""],
     ["现金", fmtMoney(t.cash), "", "cash", ""],
     ["持仓数", t.num_positions, "", "", ""],
   ];
@@ -205,23 +204,25 @@ function renderHoldings(holdings, totals) {
       <th title="若该股跌 8%（欧奈尔止损线），账户将损失的百分比">风险敞口<span class="th-sub">(-8%)</span></th>
     </tr></thead><tbody>` +
     holdings.map((h) => {
-      const c = (h.unrealized || 0) >= 0 ? "pos" : "neg";
-      const dc = (h.day_chg || 0) >= 0 ? "pos" : "neg";
-      // broker-style 2nd line: 主行常规盘，下行盘后/盘前（仅那一段）
-      const sess = h.session === "pre" ? "盘前" : "盘后";
       const eCls = (v) => (v || 0) >= 0 ? "pos" : "neg";
+      const sess = h.session === "pre" ? "盘前" : "盘后";
+      // 现价：双行（主行收盘价 + 盘后价行）
       const extPx = (h.ext_price != null) ? `<div class="ext-px ${eCls(h.ext_chg_pct)}">${sess} $${nf.format(h.ext_price)} ${signPct(h.ext_chg_pct)}</div>` : "";
-      const extDay = (h.ext_chg != null) ? `<div class="ext-px ${eCls(h.ext_chg)}">${sess} ${signMoney(h.ext_chg)}</div>` : "";
-      const extMv = (h.ext_mv != null) ? `<div class="ext-px">${sess} ${fmtMoney(h.ext_mv)}</div>` : "";
-      const extUn = (h.ext_unreal != null) ? `<div class="ext-px ${eCls(h.ext_unreal)}">${sess} ${signMoney(h.ext_unreal)}</div>` : "";
+      // 当日/市值/浮动：单行总值，含盘后那段（有盘后数据时用含盘后口径）
+      const dayVal = (h.ext_chg != null && h.day_chg != null) ? h.day_chg + h.ext_chg : h.day_chg;
+      const mvVal = (h.ext_mv != null) ? h.ext_mv : h.market_value;
+      const unVal = (h.ext_unreal != null) ? h.ext_unreal : h.unrealized;
+      const unPct = (h.ext_unreal != null && h.avg_cost) ? (unVal / (h.avg_cost * h.shares) * 100) : h.unrealized_pct;
+      const dc = (dayVal || 0) >= 0 ? "pos" : "neg";
+      const c = (unVal || 0) >= 0 ? "pos" : "neg";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
         <td>${h.shares}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
         <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extPx}</td>
-        <td class="${h.day_chg == null ? "" : dc}">${h.day_chg == null ? "—" : signMoney(h.day_chg) + `<div class="muted day-pct">${signPct(h.day_chg_pct)}</div>`}${extDay}</td>
-        <td>${fmtMoney(h.market_value)}${extMv}</td>
-        <td class="${c}">${signMoney(h.unrealized)} <span class="muted">(${signPct(h.unrealized_pct)})</span>${extUn}</td>
+        <td class="${dayVal == null ? "" : dc}">${dayVal == null ? "—" : signMoney(dayVal)}</td>
+        <td>${fmtMoney(mvVal)}</td>
+        <td class="${c}">${signMoney(unVal)} <span class="muted">(${signPct(unPct)})</span></td>
         <td>${h.weight == null ? "—" : nf.format(h.weight) + "%"}<div class="weight-bar"><span style="width:${Math.min(h.weight || 0, 100)}%"></span></div></td>
         <td class="${riskClass(h.risk_8pct)}">${h.risk_8pct == null ? "—" : "-" + nf.format(h.risk_8pct) + "%"}</td>
       </tr>`;
