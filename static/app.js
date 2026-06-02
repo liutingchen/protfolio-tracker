@@ -200,8 +200,9 @@ function renderHoldings(holdings, totals) {
     holdings.map((h) => {
       const c = (h.unrealized || 0) >= 0 ? "pos" : "neg";
       const dc = (h.day_chg || 0) >= 0 ? "pos" : "neg";
-      // after-hours sub-line under current price, when present
-      const ext = (h.ext_price != null) ? `<div class="ext-px ${(h.ext_chg_pct||0)>=0?'pos':'neg'}" title="盘后/盘前">${h.session === "pre" ? "盘前" : "盘后"} $${nf.format(h.ext_price)} ${signPct(h.ext_chg_pct)}</div>` : "";
+      // current price already reflects the pre/post price; the sub-line just
+      // labels the session + its move vs the regular close
+      const ext = (h.ext_price != null) ? `<div class="ext-px ${(h.ext_chg_pct||0)>=0?'pos':'neg'}" title="${h.session === "pre" ? "盘前" : "盘后"}相对收盘的变动">${h.session === "pre" ? "盘前" : "盘后"} ${signPct(h.ext_chg_pct)}</div>` : "";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
         <td>${h.shares}</td>
