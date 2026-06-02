@@ -137,22 +137,18 @@ function renderStats(t, ch) {
   const bar = $("statsBar");
   if (!t || t.total_value == null) { bar.innerHTML = ""; return; }
   const cls = (v) => (v >= 0 ? "pos" : "neg");
-  // after-hours sub-line for a P&L value (shown under the regular figure)
-  const extSub = (val, pct) => (val == null) ? "" :
-    `<div class="ext-sub ${cls(val)}">盘后 ${signMoney(val)}${pct == null ? "" : ` (${signPct(pct)})`}</div>`;
-  // items: [label, value, colorClass, kind, subHtml]
+  // During pre/post, all figures already reflect the after-hours price, so the
+  // 当日盈亏 label gets a small 盘后/盘前 tag instead of a separate sub-line.
+  const sessTag = t.is_ext ? `<span class="sess-tag">含盘后</span>` : "";
   const items = [
-    ["账户总值", fmtMoney(t.total_value), "", "",
-      t.market_value_ext == null ? "" : `<div class="ext-sub">盘后 ${fmtMoney((t.cash || 0) + t.market_value_ext)}</div>`],
-    ["当日盈亏", t.day_pnl == null ? "—" : signMoney(t.day_pnl) + (t.day_pnl_pct == null ? "" : ` (${signPct(t.day_pnl_pct)})`),
-      t.day_pnl == null ? "" : cls(t.day_pnl), "", extSub(t.day_pnl_ext, t.day_pnl_ext_pct)],
-    ["累计盈亏", signMoney(t.total_pnl), cls(t.total_pnl), "",
-      t.total_pnl_ext == null ? "" : `<div class="ext-sub ${cls(t.total_pnl_ext)}">盘后 ${signMoney(t.total_pnl_ext)}</div>`],
+    ["账户总值", fmtMoney(t.total_value), "", "", ""],
+    ["当日盈亏" + (t.is_ext ? " " : ""), t.day_pnl == null ? "—" : signMoney(t.day_pnl) + (t.day_pnl_pct == null ? "" : ` (${signPct(t.day_pnl_pct)})`),
+      t.day_pnl == null ? "" : cls(t.day_pnl), "", t.is_ext ? sessTag : ""],
+    ["累计盈亏", signMoney(t.total_pnl), cls(t.total_pnl), "", ""],
     ["收益率", signPct(t.return_pct), t.return_pct == null ? "" : cls(t.return_pct), "", ""],
     ["已实现盈亏", signMoney(t.realized_pnl), cls(t.realized_pnl), "", ""],
     ["未实现盈亏", signMoney(t.unrealized_pnl), cls(t.unrealized_pnl), "", ""],
-    ["持仓市值", fmtMoney(t.market_value), "", "",
-      t.market_value_ext == null ? "" : `<div class="ext-sub">盘后 ${fmtMoney(t.market_value_ext)}</div>`],
+    ["持仓市值", fmtMoney(t.market_value), "", "", ""],
     ["现金", fmtMoney(t.cash), "", "cash", ""],
     ["持仓数", t.num_positions, "", "", ""],
   ];
@@ -207,21 +203,18 @@ function renderHoldings(holdings, totals) {
     holdings.map((h) => {
       const c = (h.unrealized || 0) >= 0 ? "pos" : "neg";
       const dc = (h.day_chg || 0) >= 0 ? "pos" : "neg";
-      // 主行用常规收盘价；盘前/盘后口径放在各自单元格的子行
+      // During pre/post, the figures already ARE the after-hours values; tag
+      // the price with a small 盘后/盘前 label so it's clear which session.
       const sess = h.session === "pre" ? "盘前" : "盘后";
-      const extCls = (h.ext_chg_pct || 0) >= 0 ? "pos" : "neg";
-      const extPx = (h.ext_price != null) ? `<div class="ext-px ${extCls}">${sess} $${nf.format(h.ext_price)} ${signPct(h.ext_chg_pct)}</div>` : "";
-      const extMv = (h.ext_mv != null) ? `<div class="ext-px">${sess} ${fmtMoney(h.ext_mv)}</div>` : "";
-      const extUn = (h.ext_unreal != null) ? `<div class="ext-px ${(h.ext_unreal||0)>=0?'pos':'neg'}">${sess} ${signMoney(h.ext_unreal)}</div>` : "";
-      const extDay = (h.day_chg_ext != null) ? `<div class="ext-px ${(h.day_chg_ext||0)>=0?'pos':'neg'}">${sess} ${signMoney(h.day_chg_ext)}</div>` : "";
+      const extTag = h.is_ext ? `<div class="ext-px ${(h.ext_chg_pct||0)>=0?'pos':'neg'}">${sess} ${signPct(h.ext_chg_pct)}</div>` : "";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
         <td>${h.shares}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
-        <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extPx}</td>
-        <td class="${h.day_chg == null ? "" : dc}">${h.day_chg == null ? "—" : signMoney(h.day_chg) + `<div class="muted day-pct">${signPct(h.day_chg_pct)}</div>`}${extDay}</td>
-        <td>${fmtMoney(h.market_value)}${extMv}</td>
-        <td class="${c}">${signMoney(h.unrealized)} <span class="muted">(${signPct(h.unrealized_pct)})</span>${extUn}</td>
+        <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extTag}</td>
+        <td class="${h.day_chg == null ? "" : dc}">${h.day_chg == null ? "—" : signMoney(h.day_chg) + `<div class="muted day-pct">${signPct(h.day_chg_pct)}</div>`}</td>
+        <td>${fmtMoney(h.market_value)}</td>
+        <td class="${c}">${signMoney(h.unrealized)} <span class="muted">(${signPct(h.unrealized_pct)})</span></td>
         <td>${h.weight == null ? "—" : nf.format(h.weight) + "%"}<div class="weight-bar"><span style="width:${Math.min(h.weight || 0, 100)}%"></span></div></td>
         <td class="${riskClass(h.risk_8pct)}">${h.risk_8pct == null ? "—" : "-" + nf.format(h.risk_8pct) + "%"}</td>
       </tr>`;

@@ -119,10 +119,9 @@ body {
 .market-status.ms-closed { color: var(--muted); }
 .ext-px { font-size: 10.5px; margin-top: 2px; font-weight: 400; }
 .day-pct { font-size: 10.5px; }
-/* after-hours sub-line under a stat value */
-.ext-sub { font-size: 11px; font-weight: 400; margin-top: 2px; color: var(--muted); }
-.ext-sub.pos { color: var(--green); opacity: .85; }
-.ext-sub.neg { color: var(--red); opacity: .85; }
+/* small "含盘后" tag under a stat value when figures reflect a pre/post session */
+.sess-tag { display: inline-block; font-size: 10.5px; font-weight: 500; margin-top: 3px;
+  color: var(--accent); border: 1px solid #4a4220; border-radius: 4px; padding: 1px 6px; }
 .th-sub { color: var(--muted); font-weight: 400; font-size: 9.5px; margin-left: 2px; }
 /* position-weight mini bar under the % in the holdings table */
 .weight-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: 3px; overflow: hidden; }
