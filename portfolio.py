@@ -397,6 +397,32 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         w = (mv / base * 100.0) if base and base > 0 else None
         h["weight"] = _round(w, 2)
         h["risk_8pct"] = _round((w * STOP / 100.0) if w is not None else None, 2)
+
+    # ---- daily change + after-hours per holding ----------------------------
+    qmeta = db.get_quote_meta()
+    day_chg_total = 0.0
+    for h in holdings:
+        q = qmeta.get(h["ticker"])
+        shares = h["shares"] or 0
+        pc = q.get("prev_close") if q else None
+        last = h["last_price"]
+        if pc and last is not None:
+            day_chg = (last - pc) * shares
+            h["day_chg"] = _round(day_chg, 2)
+            h["day_chg_pct"] = _round((last - pc) / pc * 100.0, 2)
+            day_chg_total += day_chg
+        else:
+            h["day_chg"] = None
+            h["day_chg_pct"] = None
+        if q and q.get("ext_price") is not None:
+            h["ext_price"] = _round(q["ext_price"], 4)
+            h["ext_chg_pct"] = _round(q.get("ext_chg_pct"), 2)
+            h["session"] = q.get("session")
+        else:
+            h["ext_price"] = None
+            h["ext_chg_pct"] = None
+            h["session"] = (q.get("session") if q else None)
+
     buy_cost = float(df.loc[df["side"] == "buy", "notional"].sum() +
                      df.loc[df["side"] == "buy", "fees"].sum())
     invested = starting_capital if starting_capital > 0 else buy_cost
@@ -414,11 +440,21 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         # exposure rollups
         "invested_pct": _round(sum((h["weight"] or 0) for h in holdings), 2),
         "total_risk_8pct": _round(sum((h["risk_8pct"] or 0) for h in holdings), 2),
+        # today's account P&L (sum of per-holding (last - prev_close) * shares)
+        "day_pnl": _round(day_chg_total, 2),
+        "day_pnl_pct": _round((day_chg_total / (total_value - day_chg_total) * 100.0)
+                              if (total_value - day_chg_total) else None, 2),
     }
+
+    # overall market status (from any quote meta — they share the session/market)
+    _mkt = next(iter(db.get_quote_meta().values()), None)
+    market_status = {"session": _mkt.get("session"), "market": _mkt.get("market"),
+                     "as_of": _mkt.get("as_of")} if _mkt else None
 
     return {
         "has_data": True,
         "portfolio": pinfo,
+        "market_status": market_status,
         "settings": _settings_out({**settings, "display_mode": mode}),
         "mode": mode, "unit": unit,
         "tickers": tickers, "errors": errors, "warnings": warnings,

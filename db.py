@@ -75,6 +75,19 @@ CREATE TABLE IF NOT EXISTS price_meta (
     source       TEXT
 );
 
+-- live quote snapshot for daily P&L + after-hours display (refreshed on demand)
+CREATE TABLE IF NOT EXISTS quote_meta (
+    ticker     TEXT PRIMARY KEY,
+    price      REAL,    -- regular-session current/last price
+    prev_close REAL,    -- previous session close (for daily change)
+    ext_price  REAL,    -- extended-hours (pre/post) price, if any
+    ext_chg    REAL,    -- extended-hours change vs regular close
+    ext_chg_pct REAL,
+    session    TEXT,    -- 'regular' | 'pre' | 'post'
+    market     TEXT,    -- 'open' | 'closed'
+    as_of      TEXT     -- human time label from the source
+);
+
 CREATE TABLE IF NOT EXISTS email_tokens (
     token_hash TEXT PRIMARY KEY,
     user_id    INTEGER NOT NULL,
@@ -462,6 +475,28 @@ def store_prices(ticker: str, series: dict, source: str):
 def get_price_meta():
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM price_meta").fetchall()
+    return {r["ticker"]: dict(r) for r in rows}
+
+
+def store_quote_meta(ticker, q: dict):
+    """q: {price, prev_close, ext_price, ext_chg, ext_chg_pct, session, market, as_of}"""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO quote_meta(ticker, price, prev_close, ext_price, ext_chg, "
+            "ext_chg_pct, session, market, as_of) VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(ticker) DO UPDATE SET price=excluded.price, "
+            "prev_close=excluded.prev_close, ext_price=excluded.ext_price, "
+            "ext_chg=excluded.ext_chg, ext_chg_pct=excluded.ext_chg_pct, "
+            "session=excluded.session, market=excluded.market, as_of=excluded.as_of",
+            (ticker.upper(), q.get("price"), q.get("prev_close"), q.get("ext_price"),
+             q.get("ext_chg"), q.get("ext_chg_pct"), q.get("session"),
+             q.get("market"), q.get("as_of")))
+        conn.commit()
+
+
+def get_quote_meta():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM quote_meta").fetchall()
     return {r["ticker"]: dict(r) for r in rows}
 
 

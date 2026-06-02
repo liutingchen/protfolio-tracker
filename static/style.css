@@ -112,6 +112,13 @@ body {
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 .warn-amber { color: var(--accent); }
+.market-status { font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel-2); white-space: nowrap; align-self: center; }
+.market-status.ms-open { color: var(--green); border-color: #1e4d44; }
+.market-status.ms-ext { color: var(--accent); border-color: #4a4220; }
+.market-status.ms-closed { color: var(--muted); }
+.ext-px { font-size: 10.5px; margin-top: 2px; font-weight: 400; }
+.day-pct { font-size: 10.5px; }
 .th-sub { color: var(--muted); font-weight: 400; font-size: 9.5px; margin-left: 2px; }
 /* position-weight mini bar under the % in the holdings table */
 .weight-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: 3px; overflow: hidden; }

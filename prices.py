@@ -256,9 +256,13 @@ def _f(v):
 
 
 def _fetch_quote(ticker):
-    """Real-time (intraday) quote for one ticker. Returns (bar, asof_date) or
-    (None, None), where bar = {close, open, high, low, volume} for the current
-    session (`p` = live price, `o/h/l/v` = today's intraday range/volume)."""
+    """Real-time quote for one ticker. Returns (bar, asof_date, meta) or
+    (None, None, None).
+      bar  = {close, open, high, low, volume}  (regular session, for the chart)
+      meta = {price, prev_close, ext_price, ext_chg, ext_chg_pct, session,
+              market, as_of}  (for daily P&L + after-hours display)
+    `fms` = pre|regular|post session; `ep/ec/ecp` = extended-hours price/change.
+    """
     for kind in ("s", "e"):
         url = f"https://stockanalysis.com/api/quotes/{kind}/{ticker}"
         try:
@@ -278,26 +282,43 @@ def _fetch_quote(ticker):
                 continue
             bar = {"close": px, "open": _f(d.get("o")), "high": _f(d.get("h")),
                    "low": _f(d.get("l")), "volume": _f(d.get("v"))}
+            fms = d.get("fms")
+            session = ("pre" if fms == "pre" else "post" if fms == "post"
+                       else "regular")
+            has_ext = bool(d.get("e")) and session in ("pre", "post")
+            meta = {
+                "price": px,
+                "prev_close": _f(d.get("cl")),
+                "ext_price": _f(d.get("ep")) if has_ext else None,
+                "ext_chg": _f(d.get("ec")) if has_ext else None,
+                "ext_chg_pct": _f(d.get("ecp")) if has_ext else None,
+                "session": session,
+                "market": d.get("ms") or ("open" if session == "regular" else "closed"),
+                "as_of": d.get("eu") if has_ext else d.get("u"),
+            }
             ts = d.get("ts")
             asof = (dt.datetime.utcfromtimestamp(float(ts) / 1000).strftime("%Y-%m-%d")
                     if ts else None)
-            return bar, asof
+            return bar, asof, meta
         except Exception:
             continue
-    return None, None
+    return None, None, None
 
 
 def get_quotes(tickers, today):
-    """Fetch live intraday bars (price + today's O/H/L/V) and upsert each into
-    the cache dated `today` so the valuation and weekly chart pick them up as
-    the latest, complete bar. Returns {ticker: price}."""
+    """Fetch live intraday bars + quote metadata. Upserts each bar into the
+    price cache (so chart/valuation see the latest), and stores quote metadata
+    (prev close, after-hours, session) for daily-P&L display. Returns
+    {ticker: price}."""
     out = {}
     for t in tickers:
         t = t.upper()
-        bar, asof = _fetch_quote(t)
+        bar, asof, meta = _fetch_quote(t)
         if bar is not None:
             day = max(today, asof) if asof else today
             db.store_prices(t, {day: bar}, "stockanalysis-quote")
+            if meta:
+                db.store_quote_meta(t, meta)
             out[t] = bar["close"]
     return out
 

@@ -70,6 +70,7 @@ async function load() {
     state.data = ch;
     syncToolbar(ch);
     renderStats(ch.stats && ch.stats.totals, ch);
+    renderMarketStatus(ch.market_status);
     renderHoldings((ch.stats && ch.stats.holdings) || [], (ch.stats && ch.stats.totals) || {});
     renderWarnings(ch);
     renderChart(ch, state.freq);
@@ -115,12 +116,31 @@ function syncToolbar(ch) {
   $("exportBtn").hidden = state.trades.length === 0;   // export works in any view
 }
 
+function renderMarketStatus(ms) {
+  const el = $("marketStatus");
+  if (!ms || !ms.session) { el.hidden = true; return; }
+  const map = {
+    regular: { txt: "盘中", cls: "ms-open", dot: "🟢" },
+    pre: { txt: "盘前", cls: "ms-ext", dot: "🟡" },
+    post: { txt: "盘后", cls: "ms-ext", dot: "🟡" },
+  };
+  const m = map[ms.session] || { txt: "已收盘", cls: "ms-closed", dot: "⚪" };
+  // if market is open but session is regular, show 盘中; closed regular -> 已收盘
+  const label = (ms.session === "regular" && ms.market !== "open") ? "已收盘" : m.txt;
+  el.className = "market-status " + m.cls;
+  el.textContent = `${m.dot} ${label}`;
+  el.title = ms.as_of ? "行情时间：" + ms.as_of : "";
+  el.hidden = false;
+}
+
 function renderStats(t, ch) {
   const bar = $("statsBar");
   if (!t || t.total_value == null) { bar.innerHTML = ""; return; }
   const cls = (v) => (v >= 0 ? "pos" : "neg");
   const items = [
     ["账户总值", fmtMoney(t.total_value), "", ""],
+    ["当日盈亏", t.day_pnl == null ? "—" : signMoney(t.day_pnl) + (t.day_pnl_pct == null ? "" : ` (${signPct(t.day_pnl_pct)})`),
+      t.day_pnl == null ? "" : cls(t.day_pnl), ""],
     ["累计盈亏", signMoney(t.total_pnl), cls(t.total_pnl), ""],
     ["收益率", signPct(t.return_pct), t.return_pct == null ? "" : cls(t.return_pct), ""],
     ["已实现盈亏", signMoney(t.realized_pnl), cls(t.realized_pnl), ""],
@@ -171,17 +191,23 @@ function renderHoldings(holdings, totals) {
   totals = totals || {};
   if (!holdings.length) { box.innerHTML = `<p class="empty-mini">暂无持仓。</p>`; return; }
   box.innerHTML = `<table><thead><tr>
-      <th>代码</th><th>股数</th><th>均价</th><th>现价</th><th>市值</th><th>浮动盈亏</th>
+      <th>代码</th><th>股数</th><th>均价</th><th>现价</th>
+      <th title="当日涨跌（现价 vs 昨收）× 股数">当日</th>
+      <th>市值</th><th>浮动盈亏</th>
       <th title="该股市值占账户总值的比例">仓位占比</th>
       <th title="若该股跌 8%（欧奈尔止损线），账户将损失的百分比">风险敞口<span class="th-sub">(-8%)</span></th>
     </tr></thead><tbody>` +
     holdings.map((h) => {
       const c = (h.unrealized || 0) >= 0 ? "pos" : "neg";
+      const dc = (h.day_chg || 0) >= 0 ? "pos" : "neg";
+      // after-hours sub-line under current price, when present
+      const ext = (h.ext_price != null) ? `<div class="ext-px ${(h.ext_chg_pct||0)>=0?'pos':'neg'}" title="盘后/盘前">${h.session === "pre" ? "盘前" : "盘后"} $${nf.format(h.ext_price)} ${signPct(h.ext_chg_pct)}</div>` : "";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
         <td>${h.shares}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
-        <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}</td>
+        <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${ext}</td>
+        <td class="${h.day_chg == null ? "" : dc}">${h.day_chg == null ? "—" : signMoney(h.day_chg) + `<div class="muted day-pct">${signPct(h.day_chg_pct)}</div>`}</td>
         <td>${fmtMoney(h.market_value)}</td>
         <td class="${c}">${signMoney(h.unrealized)} <span class="muted">(${signPct(h.unrealized_pct)})</span></td>
         <td>${h.weight == null ? "—" : nf.format(h.weight) + "%"}<div class="weight-bar"><span style="width:${Math.min(h.weight || 0, 100)}%"></span></div></td>
