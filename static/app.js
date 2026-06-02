@@ -213,12 +213,13 @@ function renderHoldings(holdings, totals) {
       const extPx = (h.ext_price != null) ? `<div class="ext-px ${extCls}">${sess} $${nf.format(h.ext_price)} ${signPct(h.ext_chg_pct)}</div>` : "";
       const extMv = (h.ext_mv != null) ? `<div class="ext-px">${sess} ${fmtMoney(h.ext_mv)}</div>` : "";
       const extUn = (h.ext_unreal != null) ? `<div class="ext-px ${(h.ext_unreal||0)>=0?'pos':'neg'}">${sess} ${signMoney(h.ext_unreal)}</div>` : "";
+      const extDay = (h.day_chg_ext != null) ? `<div class="ext-px ${(h.day_chg_ext||0)>=0?'pos':'neg'}">${sess} ${signMoney(h.day_chg_ext)}</div>` : "";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
         <td>${h.shares}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
         <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extPx}</td>
-        <td class="${h.day_chg == null ? "" : dc}">${h.day_chg == null ? "—" : signMoney(h.day_chg) + `<div class="muted day-pct">${signPct(h.day_chg_pct)}</div>`}</td>
+        <td class="${h.day_chg == null ? "" : dc}">${h.day_chg == null ? "—" : signMoney(h.day_chg) + `<div class="muted day-pct">${signPct(h.day_chg_pct)}</div>`}${extDay}</td>
         <td>${fmtMoney(h.market_value)}${extMv}</td>
         <td class="${c}">${signMoney(h.unrealized)} <span class="muted">(${signPct(h.unrealized_pct)})</span>${extUn}</td>
         <td>${h.weight == null ? "—" : nf.format(h.weight) + "%"}<div class="weight-bar"><span style="width:${Math.min(h.weight || 0, 100)}%"></span></div></td>

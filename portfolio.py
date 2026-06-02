@@ -453,6 +453,9 @@ def _compute_series(trades, starting_capital, mode, pinfo):
             h["ext_mv"] = _round(ext * shares, 2)                     # market value @ ext
             base_cost = (h["avg_cost"] or 0) * shares
             h["ext_unreal"] = _round(ext * shares - base_cost, 2)     # unrealized @ ext
+            # today's change INCLUDING the after-hours move (for the 当日 sub-row)
+            h["day_chg_ext"] = (_round(h["day_chg"] + (ext - last) * shares, 2)
+                                if h["day_chg"] is not None else None)
             ext_chg_total += h["ext_chg"] or 0
         else:
             h["ext_price"] = None
@@ -460,6 +463,7 @@ def _compute_series(trades, starting_capital, mode, pinfo):
             h["ext_chg"] = None
             h["ext_mv"] = None
             h["ext_unreal"] = None
+            h["day_chg_ext"] = None
             h["session"] = (q.get("session") if q else None)
 
     buy_cost = float(df.loc[df["side"] == "buy", "notional"].sum() +
