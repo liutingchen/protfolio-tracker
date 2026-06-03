@@ -119,6 +119,9 @@ body {
 .market-status.ms-closed { color: var(--muted); }
 .ext-px { font-size: 10.5px; margin-top: 2px; font-weight: 400; }
 .day-pct { font-size: 10.5px; }
+/* P&L cell: percentage primary (bold), dollar amount small underneath */
+.pnl-pct { font-weight: 600; }
+.pnl-amt { font-size: 10.5px; margin-top: 1px; }
 /* after-hours 2nd line under a stat value (broker style: Today + After-hours) */
 .ext-sub { font-size: 11px; font-weight: 400; margin-top: 2px; color: var(--muted); }
 .ext-sub.pos { color: var(--green); opacity: .9; }

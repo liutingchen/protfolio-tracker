@@ -159,13 +159,21 @@ function renderStats(t, ch) {
   const mvTot = (t.market_value_ext != null) ? t.market_value_ext : t.market_value;
   const tvTot = (t.total_value_ext != null) ? t.total_value_ext : t.total_value;
   const unrTot = (t.market_value_ext != null) ? t.unrealized_pnl + (t.market_value_ext - t.market_value) : t.unrealized_pnl;
+  // percentages for the P&L cards
+  const dayPctTot = (dayTot != null && (tvTot - dayTot)) ? (dayTot / (tvTot - dayTot) * 100) : t.day_pnl_pct;
+  const unrPct = (unrTot != null && (mvTot - unrTot)) ? (unrTot / (mvTot - unrTot) * 100) : null;
+  // P&L stat: big % main + small $ sub. amountOnly stats just show $.
+  const subAmt = (v) => `<div class="ext-sub ${cls(v)}">${signMoney(v)}</div>`;
+  // item tuple: [label, mainValue, colorClass, kind, subHtml]
   const items = [
     ["账户总值", fmtMoney(tvTot), "", "", ""],
-    ["当日盈亏", dayTot == null ? "—" : signMoney(dayTot), dayTot == null ? "" : cls(dayTot), "", ""],
-    ["累计盈亏", signMoney(t.total_pnl), cls(t.total_pnl), "", ""],
-    ["收益率", signPct(t.return_pct), t.return_pct == null ? "" : cls(t.return_pct), "", ""],
+    ["当日盈亏", dayTot == null ? "—" : signPct(dayPctTot), dayTot == null ? "" : cls(dayTot), "",
+      dayTot == null ? "" : subAmt(dayTot)],
+    ["累计盈亏", t.return_pct == null ? signMoney(t.total_pnl) : signPct(t.return_pct), cls(t.total_pnl), "",
+      subAmt(t.total_pnl)],
     ["已实现盈亏", signMoney(t.realized_pnl), cls(t.realized_pnl), "", ""],
-    ["未实现盈亏", signMoney(unrTot), cls(unrTot), "", ""],
+    ["未实现盈亏", unrPct == null ? signMoney(unrTot) : signPct(unrPct), cls(unrTot), "",
+      subAmt(unrTot)],
     ["持仓市值", fmtMoney(mvTot), "", "", ""],
     ["现金", fmtMoney(t.cash), "", "cash", ""],
     ["持仓数", t.num_positions, "", "", ""],
@@ -220,8 +228,16 @@ function renderHoldings(holdings, totals) {
     const mvVal = (h.ext_mv != null) ? h.ext_mv : h.market_value;
     const unVal = (h.ext_unreal != null) ? h.ext_unreal : h.unrealized;
     const unPct = (h.ext_unreal != null && h.avg_cost) ? (unVal / (h.avg_cost * h.shares) * 100) : h.unrealized_pct;
-    return { dayVal, mvVal, unVal, unPct };
+    // day % vs the day's starting value (current value − today's change)
+    const dayBase = (dayVal != null && mvVal != null) ? (mvVal - dayVal) : null;
+    const dayPct = (dayVal != null && dayBase) ? (dayVal / dayBase * 100) : h.day_chg_pct;
+    return { dayVal, mvVal, unVal, unPct, dayPct };
   };
+  // P&L cell: big % on top, small $ underneath
+  const pnlCell = (val, pct, colorClass) =>
+    val == null ? "—"
+      : `<div class="pnl-pct ${colorClass}">${signPct(pct)}</div>` +
+        `<div class="pnl-amt muted">${signMoney(val)}</div>`;
   // columns: key + how to extract the sortable value + numeric?
   const cols = [
     { key: "ticker", label: "代码", num: false, val: (h) => h.ticker },
@@ -254,7 +270,7 @@ function renderHoldings(holdings, totals) {
       const eCls = (v) => (v || 0) >= 0 ? "pos" : "neg";
       const sess = h.session === "pre" ? "盘前" : "盘后";
       const extPx = (h.ext_price != null) ? `<div class="ext-px ${eCls(h.ext_chg_pct)}">${sess} $${nf.format(h.ext_price)} ${signPct(h.ext_chg_pct)}</div>` : "";
-      const { dayVal, mvVal, unVal, unPct } = rowVals(h);
+      const { dayVal, mvVal, unVal, unPct, dayPct } = rowVals(h);
       const dc = (dayVal || 0) >= 0 ? "pos" : "neg";
       const c = (unVal || 0) >= 0 ? "pos" : "neg";
       return `<tr>
@@ -262,9 +278,9 @@ function renderHoldings(holdings, totals) {
         <td>${fmtShares(h.shares)}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
         <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extPx}</td>
-        <td class="${dayVal == null ? "" : dc}">${dayVal == null ? "—" : signMoney(dayVal)}</td>
+        <td>${pnlCell(dayVal, dayPct, dc)}</td>
         <td>${fmtMoney(mvVal)}</td>
-        <td class="${c}">${signMoney(unVal)} <span class="muted">(${signPct(unPct)})</span></td>
+        <td>${pnlCell(unVal, unPct, c)}</td>
         <td>${h.weight == null ? "—" : nf.format(h.weight) + "%"}<div class="weight-bar"><span style="width:${Math.min(h.weight || 0, 100)}%"></span></div></td>
         <td class="${riskClass(h.risk_8pct)}">${h.risk_8pct == null ? "—" : "-" + nf.format(h.risk_8pct) + "%"}</td>
       </tr>`;
