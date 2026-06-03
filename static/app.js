@@ -173,9 +173,15 @@ function renderStats(t, ch) {
   const mvTot = (t.market_value_ext != null) ? t.market_value_ext : t.market_value;
   const tvTot = (t.total_value_ext != null) ? t.total_value_ext : t.total_value;
   const unrTot = (t.market_value_ext != null) ? t.unrealized_pnl + (t.market_value_ext - t.market_value) : t.unrealized_pnl;
+  // 累计盈亏 must include the after-hours move too, like the other account
+  // totals — otherwise during pre/post it won't equal 已实现 + 未实现 (which do
+  // include it). Cumulative P&L = realized + unrealized, so adding the holdings'
+  // extended-session move (ext_pnl) keeps the identity intact.
+  const totTot = (t.ext_pnl != null) ? t.total_pnl + t.ext_pnl : t.total_pnl;
   // percentages for the P&L cards
   const dayPctTot = (dayTot != null && (tvTot - dayTot)) ? (dayTot / (tvTot - dayTot) * 100) : t.day_pnl_pct;
   const unrPct = (unrTot != null && (mvTot - unrTot)) ? (unrTot / (mvTot - unrTot) * 100) : null;
+  const totPct = (t.ext_pnl != null && t.invested) ? (totTot / t.invested * 100) : t.return_pct;
   // P&L stat: big % main + small $ sub. amountOnly stats just show $.
   const subAmt = (v) => `<div class="ext-sub ${cls(v)}">${signMoney(v)}</div>`;
   // item tuple: [label, mainValue, colorClass, kind, subHtml]
@@ -183,8 +189,8 @@ function renderStats(t, ch) {
     ["账户总值", fmtMoney(tvTot), "", "", ""],
     ["当日盈亏", dayTot == null ? "—" : signPct(dayPctTot), dayTot == null ? "" : cls(dayTot), "",
       dayTot == null ? "" : subAmt(dayTot)],
-    ["累计盈亏", t.return_pct == null ? signMoney(t.total_pnl) : signPct(t.return_pct), cls(t.total_pnl), "",
-      subAmt(t.total_pnl)],
+    ["累计盈亏", totPct == null ? signMoney(totTot) : signPct(totPct), cls(totTot), "",
+      subAmt(totTot)],
     ["已实现盈亏", signMoney(t.realized_pnl), cls(t.realized_pnl), "", ""],
     ["未实现盈亏", unrPct == null ? signMoney(unrTot) : signPct(unrPct), cls(unrTot), "",
       subAmt(unrTot)],
