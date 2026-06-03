@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS portfolios (
     created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+-- user-defined groups that merge a chosen subset of portfolios into one view
+CREATE TABLE IF NOT EXISTS portfolio_groups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    name       TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_group_members (
+    group_id     INTEGER NOT NULL,
+    portfolio_id INTEGER NOT NULL,
+    PRIMARY KEY (group_id, portfolio_id)
+);
+
 CREATE TABLE IF NOT EXISTS trades (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     date      TEXT    NOT NULL,
@@ -283,9 +297,12 @@ def get_view_scope(uid):
 
 
 def set_view_scope(uid, scope):
+    # 'single' | 'all' | 'group:<id>'
+    if not (scope in ("single", "all") or
+            (isinstance(scope, str) and scope.startswith("group:") and scope[6:].isdigit())):
+        scope = "single"
     with get_conn() as conn:
-        conn.execute("UPDATE users SET view_scope = ? WHERE id = ?",
-                     (scope if scope in ("single", "all") else "single", uid))
+        conn.execute("UPDATE users SET view_scope = ? WHERE id = ?", (scope, uid))
         conn.commit()
 
 
@@ -375,13 +392,101 @@ def list_trades(portfolio_id):
     return [dict(r) for r in rows]
 
 
-def list_all_trades(uid):
+def list_all_trades(uid, portfolio_ids=None):
+    """All trades for the user, optionally limited to a set of portfolio ids
+    (used by custom groups). portfolio_ids=None means every portfolio."""
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT t.*, p.name AS portfolio_name FROM trades t "
-            "JOIN portfolios p ON p.id = t.portfolio_id "
-            "WHERE p.user_id = ? ORDER BY t.date ASC, t.id ASC", (uid,)).fetchall()
+        if portfolio_ids is not None:
+            ids = [int(i) for i in portfolio_ids]
+            if not ids:
+                return []
+            ph = ",".join("?" * len(ids))
+            rows = conn.execute(
+                f"SELECT t.*, p.name AS portfolio_name FROM trades t "
+                f"JOIN portfolios p ON p.id = t.portfolio_id "
+                f"WHERE p.user_id = ? AND t.portfolio_id IN ({ph}) "
+                f"ORDER BY t.date ASC, t.id ASC", (uid, *ids)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT t.*, p.name AS portfolio_name FROM trades t "
+                "JOIN portfolios p ON p.id = t.portfolio_id "
+                "WHERE p.user_id = ? ORDER BY t.date ASC, t.id ASC", (uid,)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---- custom portfolio groups -----------------------------------------------
+
+def list_groups(uid):
+    """[{id, name, portfolio_ids:[...]}] for the user."""
+    with get_conn() as conn:
+        groups = conn.execute(
+            "SELECT id, name FROM portfolio_groups WHERE user_id = ? ORDER BY id",
+            (uid,)).fetchall()
+        out = []
+        for g in groups:
+            mems = conn.execute(
+                "SELECT m.portfolio_id FROM portfolio_group_members m "
+                "JOIN portfolios p ON p.id = m.portfolio_id "
+                "WHERE m.group_id = ? AND p.user_id = ? ORDER BY m.portfolio_id",
+                (g["id"], uid)).fetchall()
+            out.append({"id": g["id"], "name": g["name"],
+                        "portfolio_ids": [r["portfolio_id"] for r in mems]})
+    return out
+
+
+def get_group(uid, gid):
+    for g in list_groups(uid):
+        if g["id"] == gid:
+            return g
+    return None
+
+
+def create_group(uid, name, portfolio_ids):
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO portfolio_groups(user_id, name) VALUES (?, ?)", (uid, name))
+        gid = cur.lastrowid
+        _set_group_members(conn, gid, uid, portfolio_ids)
+        conn.commit()
+        return gid
+
+
+def update_group(uid, gid, name=None, portfolio_ids=None):
+    with get_conn() as conn:
+        owned = conn.execute(
+            "SELECT id FROM portfolio_groups WHERE id = ? AND user_id = ?",
+            (gid, uid)).fetchone()
+        if not owned:
+            return False
+        if name is not None:
+            conn.execute("UPDATE portfolio_groups SET name = ? WHERE id = ?", (name, gid))
+        if portfolio_ids is not None:
+            conn.execute("DELETE FROM portfolio_group_members WHERE group_id = ?", (gid,))
+            _set_group_members(conn, gid, uid, portfolio_ids)
+        conn.commit()
+        return True
+
+
+def _set_group_members(conn, gid, uid, portfolio_ids):
+    # only insert portfolios the user actually owns
+    owned = {r["id"] for r in
+             conn.execute("SELECT id FROM portfolios WHERE user_id = ?", (uid,))}
+    for pid in portfolio_ids:
+        if int(pid) in owned:
+            conn.execute("INSERT OR IGNORE INTO portfolio_group_members(group_id, portfolio_id) "
+                         "VALUES (?, ?)", (gid, int(pid)))
+
+
+def delete_group(uid, gid):
+    with get_conn() as conn:
+        owned = conn.execute(
+            "SELECT id FROM portfolio_groups WHERE id = ? AND user_id = ?",
+            (gid, uid)).fetchone()
+        if owned:
+            conn.execute("DELETE FROM portfolio_group_members WHERE group_id = ?", (gid,))
+            conn.execute("DELETE FROM portfolio_groups WHERE id = ?", (gid,))
+            conn.commit()
+        return bool(owned)
 
 
 def add_trade(t: dict, portfolio_id: int):

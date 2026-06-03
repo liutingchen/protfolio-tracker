@@ -125,6 +125,14 @@ body {
 /* which portfolio(s) hold a ticker — small line under the code in combined view */
 .pf-tag { font-size: 10.5px; color: var(--muted); margin-top: 3px; font-weight: 400;
   max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* custom group modal */
+.grp-name { display: block; font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+.grp-name input { display: block; width: 100%; margin-top: 5px; }
+.grp-picker { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
+.grp-opt { display: flex; align-items: center; gap: 9px; padding: 8px 10px; font-size: 13.5px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+.grp-opt:hover { border-color: var(--muted); }
+.grp-opt input { width: auto; }
 /* after-hours 2nd line under a stat value (broker style: Today + After-hours) */
 .ext-sub { font-size: 11px; font-weight: 400; margin-top: 2px; color: var(--muted); }
 .ext-sub.pos { color: var(--green); opacity: .9; }

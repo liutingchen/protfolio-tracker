@@ -159,6 +159,25 @@ def _scope():
     return db.get_view_scope(_uid())
 
 
+def _combined():
+    """If the current view is a merged view (all portfolios or a custom group),
+    return (portfolio_ids_or_None, display_name, group_id_or_None, scope_id).
+    Returns None when the view is a single portfolio.
+      - all:        (None, "全部组合", None, "all")
+      - group:<id>: ([...], group name, gid, "group:<id>")
+    A group that no longer exists falls back to None (single)."""
+    sc = _scope()
+    uid = _uid()
+    if sc == "all":
+        return (None, "全部组合", None, "all")
+    if isinstance(sc, str) and sc.startswith("group:"):
+        gid = int(sc[6:])
+        g = db.get_group(uid, gid)
+        if g:
+            return (g["portfolio_ids"], g["name"], gid, sc)
+    return None
+
+
 # --------------------------------------------------------------------------- #
 #  Pages
 # --------------------------------------------------------------------------- #
@@ -361,6 +380,72 @@ def activate_all():
 
 
 # --------------------------------------------------------------------------- #
+#  Custom portfolio groups (named subsets merged into one view)
+# --------------------------------------------------------------------------- #
+def _parse_group(data):
+    name = str(data.get("name", "")).strip()
+    if not name:
+        return None, "请填写分组名称。"
+    if len(name) > 60:
+        return None, "名称过长（最多 60 字）。"
+    ids = data.get("portfolio_ids") or []
+    if not isinstance(ids, list) or len(ids) < 1:
+        return None, "请至少选择一个组合。"
+    try:
+        ids = [int(i) for i in ids]
+    except (ValueError, TypeError):
+        return None, "组合 ID 无效。"
+    return {"name": name, "portfolio_ids": ids}, None
+
+
+@app.get("/api/groups")
+@login_required
+def get_groups():
+    return jsonify({"groups": db.list_groups(_uid())})
+
+
+@app.post("/api/groups")
+@login_required
+def create_group():
+    g, err = _parse_group(request.get_json(force=True, silent=True) or {})
+    if err:
+        return jsonify({"error": err}), 400
+    gid = db.create_group(_uid(), g["name"], g["portfolio_ids"])
+    db.set_view_scope(_uid(), f"group:{gid}")     # land in the new group
+    return jsonify({"ok": True, "id": gid, "active_id": f"group:{gid}"}), 201
+
+
+@app.put("/api/groups/<int:gid>")
+@login_required
+def edit_group(gid):
+    g, err = _parse_group(request.get_json(force=True, silent=True) or {})
+    if err:
+        return jsonify({"error": err}), 400
+    if not db.update_group(_uid(), gid, g["name"], g["portfolio_ids"]):
+        return jsonify({"error": "分组不存在。"}), 404
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/groups/<int:gid>")
+@login_required
+def remove_group(gid):
+    if not db.delete_group(_uid(), gid):
+        return jsonify({"error": "分组不存在。"}), 404
+    if _scope() == f"group:{gid}":      # if we were viewing it, fall back to single
+        db.set_view_scope(_uid(), "single")
+    return jsonify({"ok": True})
+
+
+@app.post("/api/groups/<int:gid>/activate")
+@login_required
+def activate_group(gid):
+    if not db.get_group(_uid(), gid):
+        return jsonify({"error": "分组不存在。"}), 404
+    db.set_view_scope(_uid(), f"group:{gid}")
+    return jsonify({"ok": True, "active_id": f"group:{gid}"})
+
+
+# --------------------------------------------------------------------------- #
 #  State + chart
 # --------------------------------------------------------------------------- #
 @app.get("/api/state")
@@ -368,14 +453,18 @@ def activate_all():
 def get_state():
     uid = _uid()
     portfolios = db.list_portfolios(uid)
-    if _scope() == "all":
-        cap = sum(float(p["starting_capital"] or 0) for p in portfolios)
+    groups = db.list_groups(uid)
+    comb = _combined()
+    if comb is not None:
+        pids, name, gid, scope_id = comb
+        sub = [p for p in portfolios if (pids is None or p["id"] in set(pids))]
+        cap = sum(float(p["starting_capital"] or 0) for p in sub)
         return jsonify({
-            "trades": db.list_all_trades(uid),
-            "portfolio": {"id": "all", "name": "全部组合", "count": len(portfolios)},
+            "trades": db.list_all_trades(uid, pids),
+            "portfolio": {"id": scope_id, "name": name, "count": len(sub)},
             "settings": {"starting_capital": cap,
                          "display_mode": db.get_all_display_mode(uid)},
-            "portfolios": portfolios, "active_id": "all",
+            "portfolios": portfolios, "groups": groups, "active_id": scope_id,
             "price_meta": db.get_price_meta(),
         })
     active = db.get_active_portfolio_id(uid)
@@ -385,7 +474,7 @@ def get_state():
         "portfolio": p,
         "settings": {"starting_capital": p["starting_capital"] if p else 0,
                      "display_mode": p["display_mode"] if p else "value"},
-        "portfolios": portfolios, "active_id": active,
+        "portfolios": portfolios, "groups": groups, "active_id": active,
         "price_meta": db.get_price_meta(),
     })
 
@@ -394,8 +483,11 @@ def get_state():
 @login_required
 def get_chart():
     uid = _uid()
-    return jsonify(portfolio.compute_all(uid) if _scope() == "all"
-                   else portfolio.compute(db.get_active_portfolio_id(uid), uid))
+    comb = _combined()
+    if comb is not None:
+        pids, name, gid, _ = comb
+        return jsonify(portfolio.compute_all(uid, pids, name, gid))
+    return jsonify(portfolio.compute(db.get_active_portfolio_id(uid), uid))
 
 
 @app.get("/api/stock/<ticker>")
@@ -418,8 +510,8 @@ def set_cash():
     Holdings, P&L and the chart shape are unaffected; only the cash/NAV baseline
     shifts to match what you actually have.
     """
-    if _scope() == "all":
-        return jsonify({"error": "合并视图下不能改现金，请切换到具体组合。"}), 400
+    if _combined() is not None:
+        return jsonify({"error": "合并/分组视图下不能改现金，请切换到具体组合。"}), 400
     data = request.get_json(force=True, silent=True) or {}
     try:
         target = float(data.get("cash"))
@@ -451,8 +543,8 @@ def set_cash():
 @app.post("/api/trades")
 @login_required
 def create_trade():
-    if _scope() == "all":
-        return jsonify({"error": "合并视图下不能添加交易，请切换到具体组合。"}), 400
+    if _combined() is not None:
+        return jsonify({"error": "合并/分组视图下不能添加交易，请切换到具体组合。"}), 400
     trade, err = _parse_trade(request.get_json(force=True, silent=True) or {})
     if err:
         return jsonify({"error": err}), 400
@@ -472,8 +564,8 @@ def import_holdings():
     we raise starting_capital by (cash + total cost basis) — i.e. the money
     deposited — so that after the opening buys, cash == the entered cash.
     """
-    if _scope() == "all":
-        return jsonify({"error": "合并视图下不能导入，请切换到具体组合。"}), 400
+    if _combined() is not None:
+        return jsonify({"error": "合并/分组视图下不能导入，请切换到具体组合。"}), 400
     data = request.get_json(force=True, silent=True) or {}
 
     try:
@@ -602,8 +694,8 @@ def refresh_prices():
 @app.post("/api/clear")
 @login_required
 def clear_all():
-    if _scope() == "all":
-        return jsonify({"error": "合并视图下不能清空，请先切换到具体组合。"}), 400
+    if _combined() is not None:
+        return jsonify({"error": "合并/分组视图下不能清空，请先切换到具体组合。"}), 400
     db.clear_trades(db.get_active_portfolio_id(_uid()))
     return jsonify({"ok": True})
 
@@ -627,7 +719,7 @@ SEED_TRADES = [
 @app.post("/api/seed")
 @login_required
 def seed():
-    if _scope() == "all":
+    if _combined() is not None:
         return jsonify({"error": "请先切换到具体组合再加载示例数据。"}), 400
     active = db.get_active_portfolio_id(_uid())
     if db.list_trades(active):

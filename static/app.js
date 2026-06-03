@@ -67,10 +67,13 @@ async function load() {
   state.trades = st.trades;
   state.settings = st.settings;
   state.portfolios = st.portfolios || [];
+  state.groups = st.groups || [];
   state.activeId = st.active_id;
+  state.isGroup = typeof st.active_id === "string" && st.active_id.startsWith("group:");
   state.isAll = st.active_id === "all";
+  state.isCombined = state.isAll || state.isGroup;   // merged/read-only view
   renderPortfolioSwitch();
-  setFormEnabled(!state.isAll);
+  setFormEnabled(!state.isCombined);
   renderTradeLog(st.trades);
 
   if (chRes.status === "fulfilled") {
@@ -91,13 +94,23 @@ async function load() {
 
 function renderPortfolioSwitch() {
   const sel = $("portfolioSelect");
-  const opts = ['<option value="all">▦ 全部组合（合并）</option>'].concat(
-    state.portfolios.map((p) =>
-      `<option value="${p.id}">${escapeHtml(p.name)}${p.num_trades ? ` · ${p.num_trades}笔` : ""}</option>`));
-  sel.innerHTML = opts.join("");
-  sel.value = state.isAll ? "all" : String(state.activeId);
-  $("pfDelete").disabled = state.isAll || state.portfolios.length <= 1;
-  $("pfRename").disabled = state.isAll;
+  const single = state.portfolios.map((p) =>
+    `<option value="${p.id}">${escapeHtml(p.name)}${p.num_trades ? ` · ${p.num_trades}笔` : ""}</option>`).join("");
+  const groups = (state.groups || []).map((g) =>
+    `<option value="group:${g.id}">⊕ ${escapeHtml(g.name)}（${g.portfolio_ids.length}个）</option>`).join("");
+  sel.innerHTML =
+    `<optgroup label="组合">${single}</optgroup>` +
+    (groups ? `<optgroup label="自选分组">${groups}</optgroup>` : "") +
+    `<optgroup label="合并"><option value="all">▦ 全部组合（合并）</option>` +
+    `<option value="__newgroup__">＋ 新建自选分组…</option></optgroup>`;
+  sel.value = String(state.activeId);
+  // pf rename/delete only act on a single portfolio; group has its own buttons
+  $("pfDelete").disabled = state.isCombined || state.portfolios.length <= 1;
+  $("pfRename").disabled = state.isCombined;
+  // show group manage buttons only when viewing a group
+  const gEdit = $("groupEdit"), gDel = $("groupDelete");
+  if (gEdit) gEdit.hidden = !state.isGroup;
+  if (gDel) gDel.hidden = !state.isGroup;
 }
 
 function setFormEnabled(enabled) {
@@ -118,9 +131,9 @@ function syncToolbar(ch) {
   $("ma10Chk").checked = state.ma10;
   $("ma40Chk").checked = state.ma40;
   $("ma40Chk").parentElement.style.display = state.freq === "weekly" ? "" : "none";
-  $("capitalInput").disabled = state.isAll;   // sum is read-only in combined view
-  $("capitalSave").disabled = state.isAll;
-  $("clearBtn").hidden = state.isAll || state.trades.length === 0;
+  $("capitalInput").disabled = state.isCombined;   // sum is read-only in combined view
+  $("capitalSave").disabled = state.isCombined;
+  $("clearBtn").hidden = state.isCombined || state.trades.length === 0;
   $("exportBtn").hidden = state.trades.length === 0;   // export works in any view
 }
 
@@ -181,7 +194,7 @@ function renderStats(t, ch) {
   // remember the current cash so the editor can prefill it
   state.currentCash = t.cash;
   bar.innerHTML = items.map(([k, v, c, kind, sub]) => {
-    if (kind === "cash" && !state.isAll) {
+    if (kind === "cash" && !state.isCombined) {
       return `<div class="stat stat-editable" id="cashStat" title="点击修改现金">` +
         `<div class="k">${k} <span class="edit-pencil">✎</span></div><div class="v ${c}">${v}</div></div>`;
     }
@@ -204,6 +217,35 @@ async function editCash() {
     await load();
     showToast("现金已更新为 " + fmtMoney(val) + " ✓", true);
   } catch (ex) { showToast(ex.message, false); }
+}
+
+// ----- custom portfolio groups --------------------------------------------
+let editingGroupId = null;
+function openGroupModal(group) {
+  editingGroupId = group ? group.id : null;
+  $("groupModalTitle").textContent = group ? "编辑自选分组" : "新建自选分组";
+  $("groupName").value = group ? group.name : "";
+  $("groupMsg").hidden = true;
+  const chosen = new Set(group ? group.portfolio_ids : []);
+  $("groupPicker").innerHTML = state.portfolios.map((p) =>
+    `<label class="grp-opt"><input type="checkbox" value="${p.id}"${chosen.has(p.id) ? " checked" : ""} /> ${escapeHtml(p.name)}</label>`
+  ).join("") || `<p class="muted">还没有组合。</p>`;
+  $("groupModal").hidden = false;
+}
+async function saveGroup() {
+  const name = $("groupName").value.trim();
+  const ids = [...$("groupPicker").querySelectorAll("input:checked")].map((i) => +i.value);
+  const msg = $("groupMsg");
+  if (!name) { msg.textContent = "请填写分组名称。"; msg.className = "msg err"; msg.hidden = false; return; }
+  if (ids.length < 1) { msg.textContent = "请至少选择一个组合。"; msg.className = "msg err"; msg.hidden = false; return; }
+  try {
+    if (editingGroupId) await api("PUT", `/api/groups/${editingGroupId}`, { name, portfolio_ids: ids });
+    else await api("POST", "/api/groups", { name, portfolio_ids: ids });
+    $("groupModal").hidden = true;
+    resetForm();
+    await load();
+    showToast(editingGroupId ? "分组已更新 ✓" : "分组已创建 ✓", true);
+  } catch (ex) { msg.textContent = ex.message; msg.className = "msg err"; msg.hidden = false; }
 }
 
 // Color the per-position 8% risk: a single position losing >2% of the whole
@@ -274,7 +316,7 @@ function renderHoldings(holdings, totals) {
       const dc = (dayVal || 0) >= 0 ? "pos" : "neg";
       const c = (unVal || 0) >= 0 ? "pos" : "neg";
       // in combined view, show which portfolio(s) hold this ticker under the code
-      const pfLine = (state.isAll && h.portfolios && h.portfolios.length)
+      const pfLine = (state.isCombined && h.portfolios && h.portfolios.length)
         ? `<div class="pf-tag" title="所属组合">${h.portfolios.map(escapeHtml).join("、")}</div>` : "";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button>${pfLine}</td>
@@ -437,7 +479,7 @@ function renderTradeLog(trades) {
   const box = $("tradeLog");
   if (!trades.length) { box.innerHTML = `<p class="empty-mini">还没有交易记录。</p>`; return; }
   const rows = [...trades].reverse();
-  const isAll = state.isAll;
+  const isAll = state.isCombined;
   box.innerHTML = `<table><thead><tr>
       <th>日期</th>${isAll ? "<th>组合</th>" : ""}<th>代码</th><th>方向</th><th>股数</th><th>价格</th><th>费用</th>
       <th class="reasoncell">原因</th>${isAll ? "" : "<th></th>"}
@@ -466,7 +508,7 @@ function csvCell(v) {
 function exportTradesCsv() {
   const trades = state.trades || [];
   if (!trades.length) { showToast("没有交易记录可导出。", false); return; }
-  const isAll = state.isAll;
+  const isAll = state.isCombined;
   const header = ["Date", "Ticker", "Side", "Shares", "Price", "Fees", "Reason"];
   if (isAll) header.splice(1, 0, "Portfolio");
   const lines = [header.join(",")];
@@ -715,11 +757,30 @@ function wire() {
   });
 
   $("portfolioSelect").addEventListener("change", async (e) => {
-    if (e.target.value === "all") await api("POST", "/api/view-all", {});
-    else await api("POST", `/api/portfolios/${e.target.value}/activate`, {});
+    const v = e.target.value;
+    if (v === "__newgroup__") { e.target.value = String(state.activeId); openGroupModal(); return; }
+    if (v === "all") await api("POST", "/api/view-all", {});
+    else if (v.startsWith("group:")) await api("POST", `/api/groups/${v.slice(6)}/activate`, {});
+    else await api("POST", `/api/portfolios/${v}/activate`, {});
     resetForm();
     await load();
   });
+  $("groupEdit").addEventListener("click", () => {
+    const g = (state.groups || []).find((x) => "group:" + x.id === state.activeId);
+    if (g) openGroupModal(g);
+  });
+  $("groupDelete").addEventListener("click", async () => {
+    const g = (state.groups || []).find((x) => "group:" + x.id === state.activeId);
+    if (!g || !confirm(`删除自选分组「${g.name}」？（不影响组合本身和交易）`)) return;
+    await api("DELETE", `/api/groups/${g.id}`);
+    resetForm();
+    await load();
+  });
+  // group create/edit modal
+  $("groupModalClose").addEventListener("click", () => { $("groupModal").hidden = true; });
+  $("groupCancel").addEventListener("click", () => { $("groupModal").hidden = true; });
+  $("groupModal").addEventListener("click", (e) => { if (e.target === $("groupModal")) $("groupModal").hidden = true; });
+  $("groupSave").addEventListener("click", saveGroup);
   $("pfNew").addEventListener("click", async () => {
     const name = prompt("新组合名称：", "");
     if (name === null || !name.trim()) return;

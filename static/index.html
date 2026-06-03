@@ -25,6 +25,8 @@
           <button id="pfNew" class="btn ghost small" title="新建组合">＋ 新建</button>
           <button id="pfRename" class="btn ghost small icon" title="重命名当前组合">✎</button>
           <button id="pfDelete" class="btn ghost small icon" title="删除当前组合">🗑</button>
+          <button id="groupEdit" class="btn ghost small icon" title="编辑此自选分组" hidden>✎组</button>
+          <button id="groupDelete" class="btn ghost small icon" title="删除此自选分组" hidden>🗑组</button>
         </div>
         <span id="marketStatus" class="market-status" hidden></span>
         <button id="privacyBtn" class="btn ghost" title="隐藏金额（只显示仓位和百分比）">👁 隐私</button>
@@ -249,6 +251,27 @@
       <div class="stock-legend" id="stockLegend"></div>
       <div id="stockChart"><div id="stockBox" class="databox stock-databox" hidden></div></div>
       <p id="stockEmpty" class="muted" hidden>暂无该股票的价格数据，试试先点「↻ 刷新股价」。</p>
+    </div>
+  </div>
+
+  <!-- create / edit custom portfolio group -->
+  <div id="groupModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="groupModalTitle">新建自选分组</h2>
+        <button id="groupModalClose" class="rowbtn" title="关闭">✕</button>
+      </div>
+      <p class="muted">把几个组合合并成一个视图查看（不影响组合本身和交易）。</p>
+      <label class="grp-name">分组名称
+        <input type="text" id="groupName" maxlength="60" placeholder="如：科技仓 / 长线仓" autocomplete="off" />
+      </label>
+      <h3 class="modal-sec">选择包含的组合</h3>
+      <div id="groupPicker" class="grp-picker"></div>
+      <div class="form-actions" style="margin-top:18px">
+        <button type="button" id="groupSave" class="btn">保存</button>
+        <button type="button" id="groupCancel" class="btn ghost">取消</button>
+      </div>
+      <p id="groupMsg" class="msg" hidden></p>
     </div>
   </div>
 

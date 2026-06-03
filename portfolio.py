@@ -252,18 +252,23 @@ def compute(portfolio_id, uid):
                            p["display_mode"] or "value", pinfo)
 
 
-def compute_all(uid):
-    """Combined overview: all of the user's portfolios merged into one curve.
+def compute_all(uid, portfolio_ids=None, name="全部组合", gid=None):
+    """Combined overview: merge all of the user's portfolios (or a chosen subset
+    for a custom group) into one curve.
 
     Valid because total value is additive — merged cash = Σ per-portfolio cash,
     merged holdings MV = Σ per-portfolio MV — so the merged series equals the
     sum of the individual portfolio series.
     """
     pfs = db.list_portfolios(uid)
+    if portfolio_ids is not None:
+        idset = {int(i) for i in portfolio_ids}
+        pfs = [p for p in pfs if p["id"] in idset]
     cap = sum(float(p["starting_capital"] or 0) for p in pfs)
     mode = db.get_all_display_mode(uid)
-    pinfo = {"id": "all", "name": "全部组合", "count": len(pfs)}
-    return _compute_series(db.list_all_trades(uid), cap, mode, pinfo)
+    pinfo = {"id": (f"group:{gid}" if gid is not None else "all"),
+             "name": name, "count": len(pfs)}
+    return _compute_series(db.list_all_trades(uid, portfolio_ids), cap, mode, pinfo)
 
 
 def _compute_series(trades, starting_capital, mode, pinfo):
