@@ -28,6 +28,7 @@ const fmtMoney = (v) => (v == null ? "—" : privacyOn ? MASK : "$" + nf.format(
 const signMoney = (v) => (v == null ? "—" : privacyOn ? (v >= 0 ? "+" : "-") + MASK
   : (v >= 0 ? "+$" : "-$") + nf.format(Math.abs(v)));
 const signPct = (v) => (v == null ? "—" : (v >= 0 ? "+" : "") + nf.format(v) + "%");
+const fmtShares = (v) => (v == null ? "—" : privacyOn ? MASK : nf.format(v));
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -258,7 +259,7 @@ function renderHoldings(holdings, totals) {
       const c = (unVal || 0) >= 0 ? "pos" : "neg";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
-        <td>${h.shares}</td>
+        <td>${fmtShares(h.shares)}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
         <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extPx}</td>
         <td class="${dayVal == null ? "" : dc}">${dayVal == null ? "—" : signMoney(dayVal)}</td>
@@ -427,9 +428,9 @@ function renderTradeLog(trades) {
       ${isAll ? `<td>${escapeHtml(t.portfolio_name || "")}</td>` : ""}
       <td class="tickercell">${t.ticker}</td>
       <td style="text-align:center"><span class="pill ${t.side}">${t.side === "buy" ? "买入" : "卖出"}</span></td>
-      <td>${nf.format(t.shares)}</td>
+      <td>${fmtShares(t.shares)}</td>
       <td>$${nf.format(t.price)}</td>
-      <td>${t.fees ? "$" + nf.format(t.fees) : "—"}</td>
+      <td>${t.fees ? (privacyOn ? MASK : "$" + nf.format(t.fees)) : "—"}</td>
       <td class="reasoncell">${escapeHtml(t.reason || "")}</td>
       ${isAll ? "" : `<td style="white-space:nowrap">
         <button class="rowbtn" onclick="editTrade(${t.id})">✎</button>
