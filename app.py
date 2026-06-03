@@ -398,6 +398,26 @@ def get_chart():
                    else portfolio.compute(db.get_active_portfolio_id(uid), uid))
 
 
+@app.get("/api/_dbg/day")
+@login_required
+def _dbg_day():
+    """TEMP: show today vs each trade date + day-change inputs for the active pf."""
+    import datetime as _dt
+    uid = _uid()
+    pid = db.get_active_portfolio_id(uid)
+    trades = db.list_trades(pid)
+    qm = db.get_quote_meta()
+    out = {"today": _dt.date.today().isoformat(), "trades": [], "quote": {}}
+    for t in trades:
+        out["trades"].append({"ticker": t["ticker"], "date": t["date"],
+                              "side": t["side"], "shares": t["shares"], "price": t["price"]})
+    for tk in sorted({t["ticker"].upper() for t in trades}):
+        q = qm.get(tk, {})
+        out["quote"][tk] = {"prev_close": q.get("prev_close"), "price": q.get("price"),
+                            "ext_price": q.get("ext_price"), "session": q.get("session")}
+    return jsonify(out)
+
+
 @app.get("/api/stock/<ticker>")
 @login_required
 def get_stock(ticker):
