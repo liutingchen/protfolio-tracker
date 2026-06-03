@@ -195,24 +195,51 @@ function riskClass(r) {
 function renderHoldings(holdings, totals) {
   const box = $("holdings");
   totals = totals || {};
+  state._holdings = holdings;        // stash for re-render on header-click sort
+  state._holdTotals = totals;
   if (!holdings.length) { box.innerHTML = `<p class="empty-mini">暂无持仓。</p>`; return; }
-  box.innerHTML = `<table><thead><tr>
-      <th>代码</th><th>股数</th><th>均价</th><th>现价</th>
-      <th title="当日涨跌（现价 vs 昨收）× 股数">当日</th>
-      <th>市值</th><th>浮动盈亏</th>
-      <th title="该股市值占账户总值的比例">仓位占比</th>
-      <th title="若该股跌 8%（欧奈尔止损线），账户将损失的百分比">风险敞口<span class="th-sub">(-8%)</span></th>
-    </tr></thead><tbody>` +
-    holdings.map((h) => {
+
+  // per-row derived values (after-hours-inclusive where applicable)
+  const rowVals = (h) => {
+    const dayVal = (h.ext_chg != null && h.day_chg != null) ? h.day_chg + h.ext_chg : h.day_chg;
+    const mvVal = (h.ext_mv != null) ? h.ext_mv : h.market_value;
+    const unVal = (h.ext_unreal != null) ? h.ext_unreal : h.unrealized;
+    const unPct = (h.ext_unreal != null && h.avg_cost) ? (unVal / (h.avg_cost * h.shares) * 100) : h.unrealized_pct;
+    return { dayVal, mvVal, unVal, unPct };
+  };
+  // columns: key + how to extract the sortable value + numeric?
+  const cols = [
+    { key: "ticker", label: "代码", num: false, val: (h) => h.ticker },
+    { key: "shares", label: "股数", num: true, val: (h) => h.shares },
+    { key: "avg_cost", label: "均价", num: true, val: (h) => h.avg_cost },
+    { key: "last_price", label: "现价", num: true, val: (h) => h.last_price },
+    { key: "day", label: "当日", num: true, val: (h) => rowVals(h).dayVal, title: "当日涨跌（含盘后）" },
+    { key: "mv", label: "市值", num: true, val: (h) => rowVals(h).mvVal },
+    { key: "unreal", label: "浮动盈亏", num: true, val: (h) => rowVals(h).unVal },
+    { key: "weight", label: "仓位占比", num: true, val: (h) => h.weight, title: "该股市值占账户总值的比例" },
+    { key: "risk", label: `风险敞口<span class="th-sub">(-8%)</span>`, num: true, val: (h) => h.risk_8pct, title: "若该股跌 8%（欧奈尔止损线），账户将损失的百分比" },
+  ];
+
+  // apply current sort (default: market value desc, matching backend)
+  const s = state.holdSort || (state.holdSort = { key: "mv", dir: -1 });
+  const col = cols.find((c) => c.key === s.key) || cols[5];
+  const sorted = [...holdings].sort((a, b) => {
+    let va = col.val(a), vb = col.val(b);
+    if (col.num) { va = (va == null ? -Infinity : va); vb = (vb == null ? -Infinity : vb); return (va - vb) * s.dir; }
+    return String(va).localeCompare(String(vb)) * s.dir;
+  });
+
+  const arrow = (k) => s.key === k ? (s.dir === 1 ? " ▲" : " ▼") : "";
+  const thead = cols.map((c) =>
+    `<th class="sortable${s.key === c.key ? " sorted" : ""}" data-sort="${c.key}"${c.title ? ` title="${c.title}"` : ""}>${c.label}<span class="sort-arrow">${arrow(c.key)}</span></th>`
+  ).join("");
+
+  box.innerHTML = `<table><thead><tr>${thead}</tr></thead><tbody>` +
+    sorted.map((h) => {
       const eCls = (v) => (v || 0) >= 0 ? "pos" : "neg";
       const sess = h.session === "pre" ? "盘前" : "盘后";
-      // 现价：双行（主行收盘价 + 盘后价行）
       const extPx = (h.ext_price != null) ? `<div class="ext-px ${eCls(h.ext_chg_pct)}">${sess} $${nf.format(h.ext_price)} ${signPct(h.ext_chg_pct)}</div>` : "";
-      // 当日/市值/浮动：单行总值，含盘后那段（有盘后数据时用含盘后口径）
-      const dayVal = (h.ext_chg != null && h.day_chg != null) ? h.day_chg + h.ext_chg : h.day_chg;
-      const mvVal = (h.ext_mv != null) ? h.ext_mv : h.market_value;
-      const unVal = (h.ext_unreal != null) ? h.ext_unreal : h.unrealized;
-      const unPct = (h.ext_unreal != null && h.avg_cost) ? (unVal / (h.avg_cost * h.shares) * 100) : h.unrealized_pct;
+      const { dayVal, mvVal, unVal, unPct } = rowVals(h);
       const dc = (dayVal || 0) >= 0 ? "pos" : "neg";
       const c = (unVal || 0) >= 0 ? "pos" : "neg";
       return `<tr>
@@ -232,6 +259,17 @@ function renderHoldings(holdings, totals) {
          <span>持仓占用 <b>${nf.format(totals.invested_pct)}%</b>（现金 ${nf.format(Math.max(100 - (totals.invested_pct || 0), 0))}%）</span>
          <span title="所有持仓各跌 8% 时，账户合计损失">组合总风险 <b class="${riskClass(totals.total_risk_8pct >= 6 ? 2 : totals.total_risk_8pct >= 4 ? 1.2 : 0)}">-${nf.format(totals.total_risk_8pct || 0)}%</b></span>
        </div>`);
+
+  // wire header clicks: same column toggles dir, new column sorts (text asc, numbers desc first)
+  box.querySelectorAll("th.sortable").forEach((th) => {
+    th.addEventListener("click", () => {
+      const k = th.dataset.sort;
+      const cdef = cols.find((c) => c.key === k);
+      if (state.holdSort.key === k) state.holdSort.dir *= -1;
+      else state.holdSort = { key: k, dir: cdef.num ? -1 : 1 };
+      renderHoldings(state._holdings, state._holdTotals);
+    });
+  });
 }
 
 // ----- single-stock chart (weekly / daily) --------------------------------

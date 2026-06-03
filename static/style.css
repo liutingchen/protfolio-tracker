@@ -235,6 +235,11 @@ textarea { resize: vertical; }
 .holdings td, .tradelog td { text-align: right; padding: 8px; border-bottom: 1px solid #20242a; font-variant-numeric: tabular-nums; }
 .holdings th:first-child, .holdings td:first-child,
 .tradelog th:first-child, .tradelog td:first-child { text-align: left; }
+/* sortable holdings headers */
+.holdings th.sortable { cursor: pointer; user-select: none; white-space: nowrap; transition: color .12s; }
+.holdings th.sortable:hover { color: var(--text); }
+.holdings th.sorted { color: var(--accent); }
+.sort-arrow { font-size: 9px; }
 .tickercell { font-weight: 600; color: #fff; }
 
 /* clickable ticker -> opens the stock chart; styled as a subtle pill button */
