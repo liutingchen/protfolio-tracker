@@ -205,6 +205,7 @@ def _holding_stats(df: pd.DataFrame, price_today: dict):
         realized = 0.0
         sold_cost = 0.0           # avg-cost basis of all shares sold (for return%)
         sold_shares = 0.0
+        sold_proceeds = 0.0       # gross sell proceeds (for avg sell price)
         last_sell = None          # most recent sell date
         for _, r in tdf.sort_values(["date", "id"]).iterrows():
             if r["side"] == "buy":
@@ -218,6 +219,7 @@ def _holding_stats(df: pd.DataFrame, price_today: dict):
                 pos -= r["shares"]
                 sold_cost += avg * sold
                 sold_shares += sold
+                sold_proceeds += r["price"] * sold
                 last_sell = r["date"]
         realized_total += realized
         if sold_shares > 1e-9:    # this ticker had at least one sell
@@ -226,6 +228,8 @@ def _holding_stats(df: pd.DataFrame, price_today: dict):
                 "realized": _round(realized, 2),
                 "sold_shares": _round(sold_shares, 4),
                 "cost_basis_sold": _round(sold_cost, 2),
+                "avg_buy": _round(sold_cost / sold_shares, 4) if sold_shares > 1e-9 else None,
+                "avg_sell": _round(sold_proceeds / sold_shares, 4) if sold_shares > 1e-9 else None,
                 "return_pct": _round((realized / sold_cost * 100) if sold_cost > 1e-9 else None, 2),
                 "last_sell": (last_sell.strftime("%Y-%m-%d")
                               if hasattr(last_sell, "strftime") else str(last_sell)),

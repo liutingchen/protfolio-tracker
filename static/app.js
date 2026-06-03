@@ -360,17 +360,20 @@ function renderClosed(closed) {
   $("closedSummary").innerHTML =
     `合计已实现 <b class="${total >= 0 ? "pos" : "neg"}">${signMoney(total)}</b> · ` +
     `${closed.length} 只卖出（盈 ${wins} / 亏 ${closed.length - wins}）`;
+  const px = (v) => (v == null ? "—" : "$" + nf.format(v));
   box.innerHTML = `<table><thead><tr>
-      <th>代码</th><th>回报率</th><th>已实现盈亏</th><th>卖出成本</th><th>最近卖出</th><th></th>
+      <th>代码</th><th title="卖出的股数">股数</th><th title="所卖股票的平均买入成本">买入价</th><th title="平均卖出价">卖出价</th><th>回报率</th><th>已实现盈亏</th><th>最近卖出</th><th></th>
     </tr></thead><tbody>` +
     closed.map((x) => {
       const c = (x.realized || 0) >= 0 ? "pos" : "neg";
       const hold = x.still_holding ? `<span class="hold-tag" title="仍持有部分仓位">持有中</span>` : "";
       return `<tr>
         <td><button type="button" class="ticker-btn" onclick="openStock('${x.ticker}')" title="查看 ${x.ticker} K 线图">${x.ticker}</button></td>
+        <td>${fmtShares(x.sold_shares)}</td>
+        <td>${px(x.avg_buy)}</td>
+        <td>${px(x.avg_sell)}</td>
         <td class="${c} pnl-pct">${x.return_pct == null ? "—" : signPct(x.return_pct)}</td>
         <td class="${c}">${signMoney(x.realized)}</td>
-        <td>${fmtMoney(x.cost_basis_sold)}</td>
         <td class="muted">${x.last_sell}</td>
         <td>${hold}</td>
       </tr>`;
