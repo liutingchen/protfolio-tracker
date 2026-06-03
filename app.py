@@ -413,8 +413,10 @@ def _dbg_day():
                               "side": t["side"], "shares": t["shares"], "price": t["price"]})
     for tk in sorted({t["ticker"].upper() for t in trades}):
         q = qm.get(tk, {})
+        cached = db.get_cached_prices(tk)
         out["quote"][tk] = {"prev_close": q.get("prev_close"), "price": q.get("price"),
-                            "ext_price": q.get("ext_price"), "session": q.get("session")}
+                            "ext_price": q.get("ext_price"), "session": q.get("session"),
+                            "latest_price_date": max(cached) if cached else None}
     return jsonify(out)
 
 

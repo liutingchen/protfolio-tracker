@@ -405,21 +405,26 @@ def _compute_series(trades, starting_capital, mode, pinfo):
         h["risk_8pct"] = _round((w * STOP / 100.0) if w is not None else None, 2)
 
     # ---- daily change + after-hours per holding ----------------------------
-    # Broker-correct day P&L: shares held coming into today are marked from the
-    # prior close; shares TRADED today are marked from their actual trade price
-    # (so a position you bought today only counts the move since you bought it —
-    # not the whole day's move you didn't participate in).
+    # Broker-correct day P&L: shares held coming into the current session are
+    # marked from the prior close; shares TRADED in the current session are
+    # marked from their actual trade price (a position bought today only counts
+    # the move since you bought it, not the whole day's move).
     #   day P&L = current_value - prior_close_value - net_cash_spent_today
-    #           = pos*last - pos_yest*prev_close - (today_buys$ - today_sells$)
-    today_ts = pd.Timestamp(dt.date.today())
-    today_grp = df[df["date"] == today_ts].groupby("ticker")
+    # "Current session" is anchored to the latest available trading day (the last
+    # date in the price data), NOT the server's wall-clock today() — the server
+    # runs in UTC and may be a day ahead, and you may enter trades over a weekend.
+    # A trade on/after that latest trading day is treated as a current-session trade.
+    price_dates = [s.index.max() for s in price_series.values() if len(s)]
+    cur_day = max(price_dates) if price_dates else pd.Timestamp(dt.date.today())
+    cur_mask = df["date"] >= cur_day
+    cur_grp = df[cur_mask].groupby("ticker")
     # net shares bought today, and net $ spent on today's trades (buys +, sells -)
-    today_net_sh = (today_grp.apply(lambda g: (g.loc[g["side"] == "buy", "shares"].sum()
-                                               - g.loc[g["side"] == "sell", "shares"].sum()))
-                    if len(df[df["date"] == today_ts]) else pd.Series(dtype="float64"))
-    today_net_cash = (today_grp.apply(lambda g: (g.loc[g["side"] == "buy", "notional"].sum()
-                                                 - g.loc[g["side"] == "sell", "notional"].sum()))
-                      if len(df[df["date"] == today_ts]) else pd.Series(dtype="float64"))
+    today_net_sh = (cur_grp.apply(lambda g: (g.loc[g["side"] == "buy", "shares"].sum()
+                                             - g.loc[g["side"] == "sell", "shares"].sum()))
+                    if cur_mask.any() else pd.Series(dtype="float64"))
+    today_net_cash = (cur_grp.apply(lambda g: (g.loc[g["side"] == "buy", "notional"].sum()
+                                               - g.loc[g["side"] == "sell", "notional"].sum()))
+                      if cur_mask.any() else pd.Series(dtype="float64"))
 
     day_chg_total = 0.0
     ext_chg_total = 0.0
