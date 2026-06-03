@@ -537,6 +537,22 @@ def set_cash():
     return jsonify({"ok": True, "cash": target, "starting_capital": new_cap})
 
 
+@app.post("/api/review-note")
+@login_required
+def save_review_note():
+    """Save a post-trade 复盘 note for a sold ticker. The note is user-global
+    (one per ticker) so it shows in every view. An empty note clears it."""
+    data = request.get_json(force=True, silent=True) or {}
+    ticker = str(data.get("ticker", "")).strip().upper()
+    note = str(data.get("note", "") or "").strip()
+    if not ticker:
+        return jsonify({"error": "缺少股票代码。"}), 400
+    if len(note) > 4000:
+        return jsonify({"error": "复盘内容过长（最多 4000 字）。"}), 400
+    db.set_review_note(_uid(), ticker, note)
+    return jsonify({"ok": True, "ticker": ticker, "note": note})
+
+
 # --------------------------------------------------------------------------- #
 #  Trades
 # --------------------------------------------------------------------------- #

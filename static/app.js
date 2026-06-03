@@ -359,6 +359,7 @@ function renderClosed(closed) {
   const card = $("closedCard");
   if (!closed.length) { card.hidden = true; return; }
   card.hidden = false;
+  state._closed = closed;   // remembered so the 复盘 modal can read/refresh a note
   const box = $("closed");
   // summary: total realized across all sold tickers
   const total = closed.reduce((s, x) => s + (x.realized || 0), 0);
@@ -367,8 +368,16 @@ function renderClosed(closed) {
     `合计已实现 <b class="${total >= 0 ? "pos" : "neg"}">${signMoney(total)}</b> · ` +
     `${closed.length} 只卖出（盈 ${wins} / 亏 ${closed.length - wins}）`;
   const px = (v) => (v == null ? "—" : "$" + nf.format(v));
+  const noteCell = (x) => {
+    const has = x.note && x.note.trim();
+    if (has) {
+      const safe = escapeHtml(x.note);
+      return `<button type="button" class="review-btn has" title="${safe}" onclick="openReviewModal('${x.ticker}')">📝 <span class="review-snip">${safe}</span></button>`;
+    }
+    return `<button type="button" class="review-btn" onclick="openReviewModal('${x.ticker}')">＋ 复盘</button>`;
+  };
   box.innerHTML = `<table><thead><tr>
-      <th>代码</th><th title="卖出的股数">股数</th><th title="所卖股票的平均买入成本">买入价</th><th title="平均卖出价">卖出价</th><th>回报率</th><th>已实现盈亏</th><th>最近卖出</th><th></th>
+      <th>代码</th><th title="卖出的股数">股数</th><th title="所卖股票的平均买入成本">买入价</th><th title="平均卖出价">卖出价</th><th>回报率</th><th>已实现盈亏</th><th>最近卖出</th><th>复盘</th><th></th>
     </tr></thead><tbody>` +
     closed.map((x) => {
       const c = (x.realized || 0) >= 0 ? "pos" : "neg";
@@ -381,9 +390,33 @@ function renderClosed(closed) {
         <td class="${c} pnl-pct">${x.return_pct == null ? "—" : signPct(x.return_pct)}</td>
         <td class="${c}">${signMoney(x.realized)}</td>
         <td class="muted">${x.last_sell}</td>
+        <td>${noteCell(x)}</td>
         <td>${hold}</td>
       </tr>`;
     }).join("") + `</tbody></table>`;
+}
+
+let reviewTicker = null;
+function openReviewModal(ticker) {
+  reviewTicker = ticker;
+  const row = (state._closed || []).find((c) => c.ticker === ticker);
+  $("reviewTicker").textContent = ticker;
+  $("reviewNote").value = (row && row.note) || "";
+  $("reviewMsg").hidden = true;
+  $("reviewModal").hidden = false;
+  setTimeout(() => $("reviewNote").focus(), 30);
+}
+async function saveReview() {
+  const note = $("reviewNote").value.trim();
+  const msg = $("reviewMsg");
+  try {
+    await api("POST", "/api/review-note", { ticker: reviewTicker, note });
+    const row = (state._closed || []).find((c) => c.ticker === reviewTicker);
+    if (row) row.note = note;                 // reflect immediately without a full reload
+    $("reviewModal").hidden = true;
+    renderClosed(state._closed || []);
+    showToast(note ? "复盘已保存 ✓" : "复盘已清空", true);
+  } catch (ex) { msg.textContent = ex.message; msg.className = "msg err"; msg.hidden = false; }
 }
 
 // ----- single-stock chart (weekly / daily) --------------------------------
@@ -819,6 +852,11 @@ function wire() {
   $("groupCancel").addEventListener("click", () => { $("groupModal").hidden = true; });
   $("groupModal").addEventListener("click", (e) => { if (e.target === $("groupModal")) $("groupModal").hidden = true; });
   $("groupSave").addEventListener("click", saveGroup);
+  // 复盘 (post-trade review) modal
+  $("reviewClose").addEventListener("click", () => { $("reviewModal").hidden = true; });
+  $("reviewCancel").addEventListener("click", () => { $("reviewModal").hidden = true; });
+  $("reviewModal").addEventListener("click", (e) => { if (e.target === $("reviewModal")) $("reviewModal").hidden = true; });
+  $("reviewSave").addEventListener("click", saveReview);
   $("pfNew").addEventListener("click", async () => {
     const name = prompt("新组合名称：", "");
     if (name === null || !name.trim()) return;

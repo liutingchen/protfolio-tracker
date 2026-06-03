@@ -194,7 +194,7 @@ def _settings_out(settings):
     }
 
 
-def _holding_stats(df: pd.DataFrame, price_today: dict):
+def _holding_stats(df: pd.DataFrame, price_today: dict, notes=None):
     """Average-cost accounting per ticker -> holdings + realized/unrealized P&L.
     Also returns `closed`: per-ticker realized P&L for any ticker that has been
     sold (fully or partially), with the cost basis of the sold shares so a
@@ -234,6 +234,7 @@ def _holding_stats(df: pd.DataFrame, price_today: dict):
                 "last_sell": (last_sell.strftime("%Y-%m-%d")
                               if hasattr(last_sell, "strftime") else str(last_sell)),
                 "still_holding": pos > 1e-9,
+                "note": (notes or {}).get(ticker, ""),
             })
         if pos > 1e-9:  # still holding
             last = price_today.get(ticker)
@@ -274,7 +275,8 @@ def compute(portfolio_id, uid):
     pinfo = {"id": portfolio_id, "name": p["name"]}
     return _compute_series(db.list_trades(portfolio_id),
                            float(p["starting_capital"] or 0),
-                           p["display_mode"] or "value", pinfo)
+                           p["display_mode"] or "value", pinfo,
+                           db.get_review_notes(uid))
 
 
 def compute_all(uid, portfolio_ids=None, name="全部组合", gid=None):
@@ -293,10 +295,11 @@ def compute_all(uid, portfolio_ids=None, name="全部组合", gid=None):
     mode = db.get_all_display_mode(uid)
     pinfo = {"id": (f"group:{gid}" if gid is not None else "all"),
              "name": name, "count": len(pfs)}
-    return _compute_series(db.list_all_trades(uid, portfolio_ids), cap, mode, pinfo)
+    return _compute_series(db.list_all_trades(uid, portfolio_ids), cap, mode, pinfo,
+                           db.get_review_notes(uid))
 
 
-def _compute_series(trades, starting_capital, mode, pinfo):
+def _compute_series(trades, starting_capital, mode, pinfo, notes=None):
     settings = {"starting_capital": starting_capital, "display_mode": mode}
     if not trades:
         return _empty(settings, pinfo)
@@ -426,7 +429,7 @@ def _compute_series(trades, starting_capital, mode, pinfo):
     daily_markers = _markers(df, "d_time")
 
     # ---- stats --------------------------------------------------------------
-    holdings, realized_total, closed = _holding_stats(df, price_today)
+    holdings, realized_total, closed = _holding_stats(df, price_today, notes)
     mv_total = sum((h["market_value"] or 0) for h in holdings)
     unrealized_total = sum((h["unrealized"] or 0) for h in holdings)
     cash = starting_capital + float(cf_daily.iloc[-1])

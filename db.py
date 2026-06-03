@@ -110,6 +110,16 @@ CREATE TABLE IF NOT EXISTS email_tokens (
     used       INTEGER NOT NULL DEFAULT 0,
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+-- post-trade review notes (复盘): one note per (user, ticker), shown on the
+-- 已平仓盈亏 card next to each sold stock.
+CREATE TABLE IF NOT EXISTS review_notes (
+    user_id    INTEGER NOT NULL,
+    ticker     TEXT    NOT NULL,
+    note       TEXT    NOT NULL DEFAULT '',
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, ticker)
+);
 """
 
 
@@ -475,6 +485,35 @@ def _set_group_members(conn, gid, uid, portfolio_ids):
         if int(pid) in owned:
             conn.execute("INSERT OR IGNORE INTO portfolio_group_members(group_id, portfolio_id) "
                          "VALUES (?, ?)", (gid, int(pid)))
+
+
+# --------------------------------------------------------------------------- #
+#  Review notes (post-trade 复盘) — one note per (user, ticker)
+# --------------------------------------------------------------------------- #
+def get_review_notes(uid):
+    """{ticker: note} for the user (non-empty notes only)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT ticker, note FROM review_notes WHERE user_id = ?", (uid,)).fetchall()
+    return {r["ticker"]: r["note"] for r in rows if r["note"]}
+
+
+def set_review_note(uid, ticker, note):
+    """Upsert a post-trade review note for a ticker. Empty note removes it."""
+    ticker = (ticker or "").upper()
+    note = note or ""
+    with get_conn() as conn:
+        if note:
+            conn.execute(
+                "INSERT INTO review_notes(user_id, ticker, note, updated_at) "
+                "VALUES (?, ?, ?, datetime('now')) "
+                "ON CONFLICT(user_id, ticker) DO UPDATE SET "
+                "note = excluded.note, updated_at = excluded.updated_at",
+                (uid, ticker, note))
+        else:
+            conn.execute("DELETE FROM review_notes WHERE user_id = ? AND ticker = ?",
+                         (uid, ticker))
+        conn.commit()
 
 
 def delete_group(uid, gid):

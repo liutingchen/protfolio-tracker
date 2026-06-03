@@ -284,6 +284,24 @@
     </div>
   </div>
 
+  <!-- post-trade review (复盘) note for a sold stock -->
+  <div id="reviewModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2><span id="reviewTicker">—</span> · 复盘</h2>
+        <button id="reviewClose" class="rowbtn" title="关闭">✕</button>
+      </div>
+      <p class="muted">记录这笔交易的复盘：买卖的理由、做对或做错了什么、下次如何改进。按股票保存，只对自己可见。</p>
+      <textarea id="reviewNote" class="review-area" rows="7" maxlength="4000"
+        placeholder="例如：突破带柄茶杯买点正确，但首次回踩 10 周线就慌着减仓，事后看应持有到趋势走坏。下次：减仓前先看量价和大盘方向。"></textarea>
+      <div class="form-actions" style="margin-top:16px">
+        <button type="button" id="reviewSave" class="btn">保存</button>
+        <button type="button" id="reviewCancel" class="btn ghost">取消</button>
+      </div>
+      <p id="reviewMsg" class="msg" hidden></p>
+    </div>
+  </div>
+
   <div id="toast" class="toast" hidden></div>
 
   <script src="app.js"></script>
