@@ -182,7 +182,7 @@ def _empty(settings, pinfo=None):
         "tickers": [], "errors": {}, "warnings": [],
         "weekly": {"candles": [], "ma10": [], "ma40": [], "volume": [], "markers": []},
         "daily": {"line": [], "ma50": [], "volume": [], "markers": []},
-        "stats": {"holdings": [], "totals": {}},
+        "stats": {"holdings": [], "totals": {}, "closed": []},
         "range": None,
     }
 
@@ -195,11 +195,17 @@ def _settings_out(settings):
 
 
 def _holding_stats(df: pd.DataFrame, price_today: dict):
-    """Average-cost accounting per ticker -> holdings + realized/unrealized P&L."""
-    holdings, realized_total = [], 0.0
+    """Average-cost accounting per ticker -> holdings + realized/unrealized P&L.
+    Also returns `closed`: per-ticker realized P&L for any ticker that has been
+    sold (fully or partially), with the cost basis of the sold shares so a
+    return% can be shown."""
+    holdings, realized_total, closed = [], 0.0, []
     for ticker, tdf in df.groupby("ticker"):
         cost_basis, pos = 0.0, 0.0
         realized = 0.0
+        sold_cost = 0.0           # avg-cost basis of all shares sold (for return%)
+        sold_shares = 0.0
+        last_sell = None          # most recent sell date
         for _, r in tdf.sort_values(["date", "id"]).iterrows():
             if r["side"] == "buy":
                 cost_basis += r["shares"] * r["price"] + r["fees"]
@@ -210,7 +216,21 @@ def _holding_stats(df: pd.DataFrame, price_today: dict):
                 realized += (r["price"] - avg) * sold - r["fees"]
                 cost_basis -= avg * sold
                 pos -= r["shares"]
+                sold_cost += avg * sold
+                sold_shares += sold
+                last_sell = r["date"]
         realized_total += realized
+        if sold_shares > 1e-9:    # this ticker had at least one sell
+            closed.append({
+                "ticker": ticker,
+                "realized": _round(realized, 2),
+                "sold_shares": _round(sold_shares, 4),
+                "cost_basis_sold": _round(sold_cost, 2),
+                "return_pct": _round((realized / sold_cost * 100) if sold_cost > 1e-9 else None, 2),
+                "last_sell": (last_sell.strftime("%Y-%m-%d")
+                              if hasattr(last_sell, "strftime") else str(last_sell)),
+                "still_holding": pos > 1e-9,
+            })
         if pos > 1e-9:  # still holding
             last = price_today.get(ticker)
             avg_cost = cost_basis / pos if pos > 1e-12 else None
@@ -237,7 +257,8 @@ def _holding_stats(df: pd.DataFrame, price_today: dict):
                 "portfolios": [p[0] for p in portfolios],
             })
     holdings.sort(key=lambda h: (h["market_value"] or 0), reverse=True)
-    return holdings, realized_total
+    closed.sort(key=lambda x: x["last_sell"], reverse=True)   # most recent sells first
+    return holdings, realized_total, closed
 
 
 def compute(portfolio_id, uid):
@@ -401,7 +422,7 @@ def _compute_series(trades, starting_capital, mode, pinfo):
     daily_markers = _markers(df, "d_time")
 
     # ---- stats --------------------------------------------------------------
-    holdings, realized_total = _holding_stats(df, price_today)
+    holdings, realized_total, closed = _holding_stats(df, price_today)
     mv_total = sum((h["market_value"] or 0) for h in holdings)
     unrealized_total = sum((h["unrealized"] or 0) for h in holdings)
     cash = starting_capital + float(cf_daily.iloc[-1])
@@ -533,7 +554,7 @@ def _compute_series(trades, starting_capital, mode, pinfo):
                    "volume": weekly, "markers": weekly_markers},
         "daily": {"line": daily_line, "ma50": ma50,
                   "volume": daily_vol, "markers": daily_markers},
-        "stats": {"holdings": holdings, "totals": totals},
+        "stats": {"holdings": holdings, "totals": totals, "closed": closed},
     }
 
 

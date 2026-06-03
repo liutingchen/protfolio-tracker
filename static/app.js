@@ -83,6 +83,7 @@ async function load() {
     renderMarketStatus(ch.market_status);   // sets state._sess (used by renderStats)
     renderStats(ch.stats && ch.stats.totals, ch);
     renderHoldings((ch.stats && ch.stats.holdings) || [], (ch.stats && ch.stats.totals) || {});
+    renderClosed((ch.stats && ch.stats.closed) || []);
     renderWarnings(ch);
     renderChart(ch, state.freq);
   } else {
@@ -346,6 +347,34 @@ function renderHoldings(holdings, totals) {
       renderHoldings(state._holdings, state._holdTotals);
     });
   });
+}
+
+function renderClosed(closed) {
+  const card = $("closedCard");
+  if (!closed.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const box = $("closed");
+  // summary: total realized across all sold tickers
+  const total = closed.reduce((s, x) => s + (x.realized || 0), 0);
+  const wins = closed.filter((x) => (x.realized || 0) > 0).length;
+  $("closedSummary").innerHTML =
+    `合计已实现 <b class="${total >= 0 ? "pos" : "neg"}">${signMoney(total)}</b> · ` +
+    `${closed.length} 只卖出（盈 ${wins} / 亏 ${closed.length - wins}）`;
+  box.innerHTML = `<table><thead><tr>
+      <th>代码</th><th>回报率</th><th>已实现盈亏</th><th>卖出成本</th><th>最近卖出</th><th></th>
+    </tr></thead><tbody>` +
+    closed.map((x) => {
+      const c = (x.realized || 0) >= 0 ? "pos" : "neg";
+      const hold = x.still_holding ? `<span class="hold-tag" title="仍持有部分仓位">持有中</span>` : "";
+      return `<tr>
+        <td><button type="button" class="ticker-btn" onclick="openStock('${x.ticker}')" title="查看 ${x.ticker} K 线图">${x.ticker}</button></td>
+        <td class="${c} pnl-pct">${x.return_pct == null ? "—" : signPct(x.return_pct)}</td>
+        <td class="${c}">${signMoney(x.realized)}</td>
+        <td>${fmtMoney(x.cost_basis_sold)}</td>
+        <td class="muted">${x.last_sell}</td>
+        <td>${hold}</td>
+      </tr>`;
+    }).join("") + `</tbody></table>`;
 }
 
 // ----- single-stock chart (weekly / daily) --------------------------------

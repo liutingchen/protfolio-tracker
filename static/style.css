@@ -122,6 +122,13 @@ body {
 /* P&L cell: percentage primary (bold), dollar amount small underneath */
 .pnl-pct { font-weight: 600; }
 .pnl-amt { font-size: 10.5px; margin-top: 1px; }
+/* closed / realized P&L card */
+.closed-summary { font-size: 12.5px; }
+.closed-summary b { font-weight: 700; }
+.hold-tag {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 10px;
+  background: rgba(120,120,140,.18); color: var(--muted); white-space: nowrap;
+}
 /* which portfolio(s) hold a ticker — small line under the code in combined view */
 .pf-tag { font-size: 10.5px; color: var(--muted); margin-top: 3px; font-weight: 400;
   max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
