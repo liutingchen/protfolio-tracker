@@ -509,3 +509,13 @@ def clear_price_cache(ticker: str | None = None):
             conn.execute("DELETE FROM price_cache")
             conn.execute("DELETE FROM price_meta")
         conn.commit()
+
+
+def delete_prices_after(ticker: str, date: str):
+    """Remove price rows strictly after `date` (cleans up stale future-dated
+    quote rows written when the server's UTC 'today' ran ahead of the real
+    trading day)."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM price_cache WHERE ticker = ? AND date > ?",
+                     (ticker.upper(), date))
+        conn.commit()

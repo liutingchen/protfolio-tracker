@@ -302,9 +302,14 @@ def _fetch_quote(ticker):
                 "market": d.get("ms") or ("open" if session == "regular" else "closed"),
                 "as_of": d.get("eu") if has_ext else d.get("u"),
             }
-            ts = d.get("ts")
-            asof = (dt.datetime.utcfromtimestamp(float(ts) / 1000).strftime("%Y-%m-%d")
-                    if ts else None)
+            # Prefer the source's own trading date (`td`/`etd`) over a UTC
+            # timestamp — the latter can roll to the next calendar day in UTC
+            # while the US market's trading day is still the prior date.
+            asof = d.get("td") or d.get("etd")
+            if not asof:
+                ts = d.get("ts")
+                asof = (dt.datetime.utcfromtimestamp(float(ts) / 1000).strftime("%Y-%m-%d")
+                        if ts else None)
             return bar, asof, meta
         except Exception:
             continue
@@ -321,7 +326,12 @@ def get_quotes(tickers, today):
         t = t.upper()
         bar, asof, meta = _fetch_quote(t)
         if bar is not None:
-            day = max(today, asof) if asof else today
+            # store at the quote's actual trading date (asof); fall back to the
+            # passed-in `today` only if the source didn't give one. Do NOT max()
+            # with `today` — server UTC may be a day ahead of the trading day.
+            day = asof or today
+            if asof:
+                db.delete_prices_after(t, asof)   # purge stale future-dated rows
             db.store_prices(t, {day: bar}, "stockanalysis-quote")
             if meta:
                 db.store_quote_meta(t, meta)
