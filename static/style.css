@@ -225,6 +225,7 @@ textarea { resize: vertical; }
 .btn:hover { filter: brightness(1.08); }
 .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); font-weight: 500; }
 .btn.ghost:hover { border-color: var(--muted); }
+.btn.ghost.active { border-color: var(--accent); color: var(--accent); }
 .btn.small { padding: 6px 12px; font-size: 12.5px; }
 .btn.danger { color: var(--red); border-color: #4a2326; }
 .error { color: var(--red); font-size: 12.5px; margin: 4px 0 0; }

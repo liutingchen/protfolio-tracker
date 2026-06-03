@@ -18,8 +18,15 @@ async function api(method, path, body) {
 }
 const $ = (id) => document.getElementById(id);
 const nf = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const fmtMoney = (v) => (v == null ? "—" : "$" + nf.format(v));
-const signMoney = (v) => (v == null ? "—" : (v >= 0 ? "+$" : "-$") + nf.format(Math.abs(v)));
+// Privacy mode: hide account-scaled dollar amounts (totals, P&L, market value,
+// cash). Percentages, share counts, weights, and public per-share prices stay
+// visible. State persists in localStorage. Toggle via the 👁 button.
+let privacyOn = localStorage.getItem("privacy") === "1";
+const MASK = "••••";
+// keepSign: in privacy mode still show +/- so the color/direction reads right
+const fmtMoney = (v) => (v == null ? "—" : privacyOn ? MASK : "$" + nf.format(v));
+const signMoney = (v) => (v == null ? "—" : privacyOn ? (v >= 0 ? "+" : "-") + MASK
+  : (v >= 0 ? "+$" : "-$") + nf.format(Math.abs(v)));
 const signPct = (v) => (v == null ? "—" : (v >= 0 ? "+" : "") + nf.format(v) + "%");
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
@@ -114,6 +121,13 @@ function syncToolbar(ch) {
   $("capitalSave").disabled = state.isAll;
   $("clearBtn").hidden = state.isAll || state.trades.length === 0;
   $("exportBtn").hidden = state.trades.length === 0;   // export works in any view
+}
+
+function syncPrivacyBtn() {
+  const b = $("privacyBtn");
+  if (!b) return;
+  b.textContent = privacyOn ? "🙈 隐私中" : "👁 隐私";
+  b.classList.toggle("active", privacyOn);
 }
 
 function renderMarketStatus(ms) {
@@ -705,6 +719,19 @@ function wire() {
     await api("DELETE", `/api/portfolios/${state.activeId}`);
     resetForm();
     await load();
+  });
+
+  syncPrivacyBtn();
+  $("privacyBtn").addEventListener("click", () => {
+    privacyOn = !privacyOn;
+    localStorage.setItem("privacy", privacyOn ? "1" : "0");
+    syncPrivacyBtn();
+    if (state.data) {            // re-render with the new masking, no refetch
+      renderStats(state.data.stats && state.data.stats.totals, state.data);
+      renderHoldings((state.data.stats && state.data.stats.holdings) || [],
+                     (state.data.stats && state.data.stats.totals) || {});
+      renderTradeLog(state.trades);
+    }
   });
 
   $("refreshBtn").addEventListener("click", async () => {
