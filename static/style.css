@@ -122,6 +122,9 @@ body {
 /* P&L cell: percentage primary (bold), dollar amount small underneath */
 .pnl-pct { font-weight: 600; }
 .pnl-amt { font-size: 10.5px; margin-top: 1px; }
+/* which portfolio(s) hold a ticker — small line under the code in combined view */
+.pf-tag { font-size: 10.5px; color: var(--muted); margin-top: 3px; font-weight: 400;
+  max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* after-hours 2nd line under a stat value (broker style: Today + After-hours) */
 .ext-sub { font-size: 11px; font-weight: 400; margin-top: 2px; color: var(--muted); }
 .ext-sub.pos { color: var(--green); opacity: .9; }

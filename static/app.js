@@ -273,8 +273,11 @@ function renderHoldings(holdings, totals) {
       const { dayVal, mvVal, unVal, unPct, dayPct } = rowVals(h);
       const dc = (dayVal || 0) >= 0 ? "pos" : "neg";
       const c = (unVal || 0) >= 0 ? "pos" : "neg";
+      // in combined view, show which portfolio(s) hold this ticker under the code
+      const pfLine = (state.isAll && h.portfolios && h.portfolios.length)
+        ? `<div class="pf-tag" title="所属组合">${h.portfolios.map(escapeHtml).join("、")}</div>` : "";
       return `<tr>
-        <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button></td>
+        <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button>${pfLine}</td>
         <td>${fmtShares(h.shares)}</td>
         <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
         <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extPx}</td>

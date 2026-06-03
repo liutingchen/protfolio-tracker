@@ -216,6 +216,16 @@ def _holding_stats(df: pd.DataFrame, price_today: dict):
             avg_cost = cost_basis / pos if pos > 1e-12 else None
             mv = pos * last if last is not None else None
             unreal = (mv - cost_basis) if mv is not None else None
+            # which portfolios still hold this ticker (combined view only).
+            # A portfolio that fully sold out is excluded.
+            portfolios = []
+            if "portfolio_name" in tdf.columns:
+                for pname, ptdf in tdf.groupby("portfolio_name"):
+                    net = ptdf.apply(lambda r: r["shares"] if r["side"] == "buy"
+                                     else -r["shares"], axis=1).sum()
+                    if net > 1e-9:
+                        portfolios.append((pname, net))
+                portfolios.sort(key=lambda x: -x[1])   # biggest position first
             holdings.append({
                 "ticker": ticker,
                 "shares": _round(pos, 4),
@@ -224,6 +234,7 @@ def _holding_stats(df: pd.DataFrame, price_today: dict):
                 "market_value": _round(mv, 2),
                 "unrealized": _round(unreal, 2),
                 "unrealized_pct": _round((unreal / cost_basis * 100) if (unreal is not None and cost_basis > 1e-9) else None, 2),
+                "portfolios": [p[0] for p in portfolios],
             })
     holdings.sort(key=lambda h: (h["market_value"] or 0), reverse=True)
     return holdings, realized_total
