@@ -326,15 +326,15 @@ function renderHoldings(holdings, totals) {
       const pfLine = (state.isCombined && h.portfolios && h.portfolios.length)
         ? `<div class="pf-tag" title="所属组合">${h.portfolios.map(escapeHtml).join("、")}</div>` : "";
       return `<tr>
-        <td><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button>${pfLine}</td>
-        <td>${fmtShares(h.shares)}</td>
-        <td>${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
-        <td>${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extPx}</td>
-        <td>${pnlCell(dayVal, dayPct, dc)}</td>
-        <td>${fmtMoney(mvVal)}</td>
-        <td>${pnlCell(unVal, unPct, c)}</td>
-        <td>${h.weight == null ? "—" : nf.format(h.weight) + "%"}<div class="weight-bar"><span style="width:${Math.min(h.weight || 0, 100)}%"></span></div></td>
-        <td class="${riskClass(h.risk_8pct)}">${h.risk_8pct == null ? "—" : "-" + nf.format(h.risk_8pct) + "%"}</td>
+        <td data-label="代码"><button type="button" class="ticker-btn" onclick="openStock('${h.ticker}')" title="查看 ${h.ticker} K 线图">${h.ticker}</button>${pfLine}</td>
+        <td data-label="股数">${fmtShares(h.shares)}</td>
+        <td data-label="均价">${h.avg_cost == null ? "—" : "$" + nf.format(h.avg_cost)}</td>
+        <td data-label="现价">${h.last_price == null ? "—" : "$" + nf.format(h.last_price)}${extPx}</td>
+        <td data-label="当日">${pnlCell(dayVal, dayPct, dc)}</td>
+        <td data-label="市值">${fmtMoney(mvVal)}</td>
+        <td data-label="浮动盈亏">${pnlCell(unVal, unPct, c)}</td>
+        <td data-label="仓位占比">${h.weight == null ? "—" : nf.format(h.weight) + "%"}<div class="weight-bar"><span style="width:${Math.min(h.weight || 0, 100)}%"></span></div></td>
+        <td data-label="风险敞口" class="${riskClass(h.risk_8pct)}">${h.risk_8pct == null ? "—" : "-" + nf.format(h.risk_8pct) + "%"}</td>
       </tr>`;
     }).join("") + `</tbody></table>` +
     (totals.invested_pct == null ? "" :
@@ -377,21 +377,20 @@ function renderClosed(closed) {
     return `<button type="button" class="review-btn" onclick="openReviewModal('${x.ticker}')">＋ 复盘</button>`;
   };
   box.innerHTML = `<table><thead><tr>
-      <th>代码</th><th title="卖出的股数">股数</th><th title="所卖股票的平均买入成本">买入价</th><th title="平均卖出价">卖出价</th><th>回报率</th><th>已实现盈亏</th><th>最近卖出</th><th>复盘</th><th></th>
+      <th>代码</th><th title="卖出的股数">股数</th><th title="所卖股票的平均买入成本">买入价</th><th title="平均卖出价">卖出价</th><th>回报率</th><th>已实现盈亏</th><th>最近卖出</th><th>复盘</th>
     </tr></thead><tbody>` +
     closed.map((x) => {
       const c = (x.realized || 0) >= 0 ? "pos" : "neg";
-      const hold = x.still_holding ? `<span class="hold-tag" title="仍持有部分仓位">持有中</span>` : "";
+      const hold = x.still_holding ? ` <span class="hold-tag" title="仍持有部分仓位">持有中</span>` : "";
       return `<tr>
-        <td><button type="button" class="ticker-btn" onclick="openStock('${x.ticker}')" title="查看 ${x.ticker} K 线图">${x.ticker}</button></td>
-        <td>${fmtShares(x.sold_shares)}</td>
-        <td>${px(x.avg_buy)}</td>
-        <td>${px(x.avg_sell)}</td>
-        <td class="${c} pnl-pct">${x.return_pct == null ? "—" : signPct(x.return_pct)}</td>
-        <td class="${c}">${signMoney(x.realized)}</td>
-        <td class="muted">${x.last_sell}</td>
-        <td>${noteCell(x)}</td>
-        <td>${hold}</td>
+        <td data-label="代码"><button type="button" class="ticker-btn" onclick="openStock('${x.ticker}')" title="查看 ${x.ticker} K 线图">${x.ticker}</button>${hold}</td>
+        <td data-label="股数">${fmtShares(x.sold_shares)}</td>
+        <td data-label="买入价">${px(x.avg_buy)}</td>
+        <td data-label="卖出价">${px(x.avg_sell)}</td>
+        <td data-label="回报率" class="${c} pnl-pct">${x.return_pct == null ? "—" : signPct(x.return_pct)}</td>
+        <td data-label="已实现盈亏" class="${c}">${signMoney(x.realized)}</td>
+        <td data-label="最近卖出" class="muted">${x.last_sell}</td>
+        <td data-label="复盘">${noteCell(x)}</td>
       </tr>`;
     }).join("") + `</tbody></table>`;
 }
@@ -556,15 +555,15 @@ function renderTradeLog(trades) {
       <th class="reasoncell">原因</th>${isAll ? "" : "<th></th>"}
     </tr></thead><tbody>` +
     rows.map((t) => `<tr>
-      <td>${t.date}</td>
-      ${isAll ? `<td>${escapeHtml(t.portfolio_name || "")}</td>` : ""}
-      <td class="tickercell">${t.ticker}</td>
-      <td style="text-align:center"><span class="pill ${t.side}">${t.side === "buy" ? "买入" : "卖出"}</span></td>
-      <td>${fmtShares(t.shares)}</td>
-      <td>$${nf.format(t.price)}</td>
-      <td>${t.fees ? (privacyOn ? MASK : "$" + nf.format(t.fees)) : "—"}</td>
-      <td class="reasoncell">${escapeHtml(t.reason || "")}</td>
-      ${isAll ? "" : `<td style="white-space:nowrap">
+      <td data-label="日期">${t.date}</td>
+      ${isAll ? `<td data-label="组合">${escapeHtml(t.portfolio_name || "")}</td>` : ""}
+      <td data-label="代码" class="tickercell">${t.ticker}</td>
+      <td data-label="方向" style="text-align:center"><span class="pill ${t.side}">${t.side === "buy" ? "买入" : "卖出"}</span></td>
+      <td data-label="股数">${fmtShares(t.shares)}</td>
+      <td data-label="价格">$${nf.format(t.price)}</td>
+      <td data-label="费用">${t.fees ? (privacyOn ? MASK : "$" + nf.format(t.fees)) : "—"}</td>
+      <td data-label="原因" class="reasoncell">${escapeHtml(t.reason || "")}</td>
+      ${isAll ? "" : `<td data-label="操作" class="actioncell" style="white-space:nowrap">
         <button class="rowbtn" onclick="editTrade(${t.id})">✎</button>
         <button class="rowbtn del" onclick="deleteTrade(${t.id})">🗑</button>
       </td>`}
