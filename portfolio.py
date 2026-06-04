@@ -207,6 +207,7 @@ def _holding_stats(df: pd.DataFrame, price_today: dict, notes=None):
         sold_shares = 0.0
         sold_proceeds = 0.0       # gross sell proceeds (for avg sell price)
         last_sell = None          # most recent sell date
+        lots = []                 # one entry per sell (a "round") for the breakdown
         for _, r in tdf.sort_values(["date", "id"]).iterrows():
             if r["side"] == "buy":
                 cost_basis += r["shares"] * r["price"] + r["fees"]
@@ -214,13 +215,24 @@ def _holding_stats(df: pd.DataFrame, price_today: dict, notes=None):
             else:  # sell
                 avg = cost_basis / pos if pos > 1e-12 else 0.0
                 sold = min(r["shares"], pos) if pos > 0 else r["shares"]
-                realized += (r["price"] - avg) * sold - r["fees"]
+                sell_realized = (r["price"] - avg) * sold - r["fees"]
+                realized += sell_realized
                 cost_basis -= avg * sold
                 pos -= r["shares"]
                 sold_cost += avg * sold
                 sold_shares += sold
                 sold_proceeds += r["price"] * sold
                 last_sell = r["date"]
+                lots.append({
+                    "date": (r["date"].strftime("%Y-%m-%d")
+                             if hasattr(r["date"], "strftime") else str(r["date"])),
+                    "shares": _round(sold, 4),
+                    "buy": _round(avg, 4),          # avg cost of the shares sold here
+                    "sell": _round(r["price"], 4),
+                    "realized": _round(sell_realized, 2),
+                    "return_pct": _round((sell_realized / (avg * sold) * 100)
+                                         if (avg * sold) > 1e-9 else None, 2),
+                })
         realized_total += realized
         if sold_shares > 1e-9:    # this ticker had at least one sell
             closed.append({
@@ -235,6 +247,7 @@ def _holding_stats(df: pd.DataFrame, price_today: dict, notes=None):
                               if hasattr(last_sell, "strftime") else str(last_sell)),
                 "still_holding": pos > 1e-9,
                 "note": (notes or {}).get(ticker, ""),
+                "lots": lots,            # per-sell breakdown (round-by-round)
             })
         if pos > 1e-9:  # still holding
             last = price_today.get(ticker)

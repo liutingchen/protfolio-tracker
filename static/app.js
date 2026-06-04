@@ -382,8 +382,13 @@ function renderClosed(closed) {
     closed.map((x) => {
       const c = (x.realized || 0) >= 0 ? "pos" : "neg";
       const hold = x.still_holding ? ` <span class="hold-tag" title="仍持有部分仓位">持有中</span>` : "";
-      return `<tr>
-        <td data-label="代码"><button type="button" class="ticker-btn" onclick="openStock('${x.ticker}')" title="查看 ${x.ticker} K 线图">${x.ticker}</button>${hold}</td>
+      const lots = x.lots || [];
+      const expandable = lots.length > 1;   // only worth expanding when multiple sells
+      const toggle = expandable
+        ? `<button type="button" class="lot-toggle" aria-expanded="false" title="展开每一笔卖出" onclick="toggleLots('${x.ticker}', this)">▸</button>`
+        : `<span class="lot-toggle-spacer"></span>`;
+      const main = `<tr>
+        <td data-label="代码">${toggle}<button type="button" class="ticker-btn" onclick="openStock('${x.ticker}')" title="查看 ${x.ticker} K 线图">${x.ticker}</button>${hold}</td>
         <td data-label="股数">${fmtShares(x.sold_shares)}</td>
         <td data-label="买入价">${px(x.avg_buy)}</td>
         <td data-label="卖出价">${px(x.avg_sell)}</td>
@@ -392,7 +397,30 @@ function renderClosed(closed) {
         <td data-label="最近卖出" class="muted">${x.last_sell}</td>
         <td data-label="复盘">${noteCell(x)}</td>
       </tr>`;
+      const lotRows = expandable ? lots.map((l, i) => {
+        const lc = (l.realized || 0) >= 0 ? "pos" : "neg";
+        return `<tr class="lot-row" hidden data-lot="${escapeHtml(x.ticker)}">
+          <td data-label="第几笔" class="lot-label">└ 第 ${i + 1} 笔</td>
+          <td data-label="股数">${fmtShares(l.shares)}</td>
+          <td data-label="买入价">${px(l.buy)}</td>
+          <td data-label="卖出价">${px(l.sell)}</td>
+          <td data-label="回报率" class="${lc}">${l.return_pct == null ? "—" : signPct(l.return_pct)}</td>
+          <td data-label="已实现盈亏" class="${lc}">${signMoney(l.realized)}</td>
+          <td data-label="卖出日期" class="muted">${l.date}</td>
+          <td></td>
+        </tr>`;
+      }).join("") : "";
+      return main + lotRows;
     }).join("") + `</tbody></table>`;
+}
+
+// expand/collapse the per-sell breakdown for one ticker in 已平仓盈亏
+function toggleLots(ticker, btn) {
+  const show = btn.getAttribute("aria-expanded") !== "true";
+  document.querySelectorAll(`#closed tr[data-lot="${CSS.escape(ticker)}"]`)
+    .forEach((r) => { r.hidden = !show; });
+  btn.setAttribute("aria-expanded", show ? "true" : "false");
+  btn.textContent = show ? "▾" : "▸";
 }
 
 let reviewTicker = null;

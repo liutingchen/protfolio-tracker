@@ -129,6 +129,16 @@ body {
   display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 10px;
   background: rgba(120,120,140,.18); color: var(--muted); white-space: nowrap;
 }
+/* per-sell (round-by-round) breakdown in 已平仓盈亏 */
+.lot-toggle, .lot-toggle-spacer {
+  display: inline-block; width: 16px; text-align: center; vertical-align: middle;
+  background: none; border: none; padding: 0; margin-right: 3px;
+  color: var(--muted); font-size: 11px; cursor: pointer;
+}
+.lot-toggle-spacer { cursor: default; }
+.lot-toggle:hover { color: var(--accent); }
+.lot-row td { background: rgba(255,255,255,.025); font-size: 12px; }
+.lot-label { color: var(--muted); padding-left: 16px !important; white-space: nowrap; }
 /* 复盘 (post-trade review) note button in the closed-positions table */
 .review-btn {
   display: inline-flex; align-items: center; gap: 4px; max-width: 230px;
