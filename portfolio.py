@@ -526,6 +526,21 @@ def _compute_series(trades, starting_capital, mode, pinfo, notes=None):
             h["ext_mv"] = None
             h["ext_unreal"] = None
 
+    # ---- drawdown stats (always based on dollar value_daily / NAV) ----------
+    # All-time high: the highest account value ever recorded in the daily series.
+    ath = float(value_daily.max())
+    ath_dd_pct = _round((total_value - ath) / ath * 100, 2) if ath > 1e-6 else None
+
+    # Previous-week high: max NAV over the 5 trading days immediately preceding
+    # the most recent data point (rolling "last week" window).
+    if len(value_daily) > 1:
+        prev_slice = value_daily.iloc[max(0, len(value_daily) - 6):-1]
+        week_high = float(prev_slice.max()) if len(prev_slice) > 0 else None
+    else:
+        week_high = None
+    week_dd_pct = (_round((total_value - week_high) / week_high * 100, 2)
+                   if (week_high and week_high > 1e-6) else None)
+
     buy_cost = float(df.loc[df["side"] == "buy", "notional"].sum() +
                      df.loc[df["side"] == "buy", "fees"].sum())
     invested = starting_capital if starting_capital > 0 else buy_cost
@@ -548,6 +563,11 @@ def _compute_series(trades, starting_capital, mode, pinfo, notes=None):
         "day_pnl_pct": _round((day_chg_total / (total_value - day_chg_total) * 100.0)
                               if (total_value - day_chg_total) else None, 2),
         "is_ext": ext_active,   # a pre/post session is active -> show 2nd line
+        # drawdown from historical peak and previous-week peak
+        "ath": _round(ath, 2),
+        "ath_dd_pct": ath_dd_pct,          # 0 = AT ATH; negative = below ATH
+        "week_high": _round(week_high, 2) if week_high else None,
+        "week_dd_pct": week_dd_pct,        # 0 = at week high; negative = below
     }
     # after-hours SECOND line (broker style): the extended segment only.
     if ext_active and ext_chg_total:

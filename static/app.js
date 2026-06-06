@@ -197,6 +197,21 @@ function renderStats(t, ch) {
     ["持仓市值", fmtMoney(mvTot), "", "", ""],
     ["现金", fmtMoney(t.cash), "", "cash", ""],
     ["持仓数", t.num_positions, "", "", ""],
+    // drawdown cards — only shown when data is available
+    ...(t.ath != null ? [[
+      "历史最高",
+      t.ath_dd_pct === 0 ? "🏔 历史新高" : signPct(t.ath_dd_pct),
+      t.ath_dd_pct === 0 ? "pos" : (t.ath_dd_pct < 0 ? "neg" : ""),
+      "",
+      `<div class="ext-sub muted">${fmtMoney(t.ath)}</div>`,
+    ]] : []),
+    ...(t.week_high != null ? [[
+      "近5日高",
+      t.week_dd_pct === 0 ? "—" : signPct(t.week_dd_pct),
+      t.week_dd_pct === 0 ? "" : (t.week_dd_pct < 0 ? "neg" : "pos"),
+      "",
+      `<div class="ext-sub muted">${fmtMoney(t.week_high)}</div>`,
+    ]] : []),
   ];
   // remember the current cash so the editor can prefill it
   state.currentCash = t.cash;
