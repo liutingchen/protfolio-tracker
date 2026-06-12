@@ -78,11 +78,11 @@ def _upper_channel(bar_df):
 
     Rules enforced (O'Neil HTMM + 讲者课程标准): a rising straight line across
     exactly 3 swing highs of the RECENT advance — adjacent highs >=8 weeks
-    apart, and the whole structure spanning MORE than 18 weeks but within
-    ~5 months (22 weeks). A line that needs far longer than 5 months to find
-    its 3 peaks (87-week INTC-style spans) is not a channel line. The last
-    peak must be <=26 weeks old: extending a stale line forward is
-    extrapolation, not a channel.
+    apart, and the whole structure spanning about 4-5 months (16 to 22
+    weeks; the book's own ISRG 2004-05 line measures 16 weeks). A line that
+    needs far longer than 5 months to find its 3 peaks (87-week INTC-style
+    spans) is not a channel line. The last peak must be <=26 weeks old:
+    extending a stale line forward is extrapolation, not a channel.
 
     The middle high may sit 2.5% off the line (hand-drawn channels are
     eyeballed); no weekly high inside the span may pierce the line by >1%.
@@ -121,7 +121,7 @@ def _upper_channel(bar_df):
                 if wk(p2, p3) < 8:
                     continue
                 span = wk(p1, p3)
-                if not (18 < span <= 22):
+                if not (16 <= span <= 22):
                     continue
                 if wk(p3, n - 1) > 26:
                     continue
