@@ -561,20 +561,26 @@ function renderStockChart(d) {
   const host = $("stockChart");
   if (stockChart) { stockChart.remove(); stockChart = null; }
   if (!d || !d.candles.length) return;
+  // MarketSurge-style chart: white bg, dotted grid, LOG price scale,
+  // thin OHLC bars colored vs PRIOR close (blue up / magenta down)
   stockChart = LightweightCharts.createChart(host, {
     autoSize: true,
-    layout: { background: { color: "#0b0e11" }, textColor: "#d1d4dc", fontSize: 12 },
-    grid: { vertLines: { color: "#1c2127" }, horzLines: { color: "#1c2127" } },
-    rightPriceScale: { borderColor: "#2a2f36" },
-    timeScale: { borderColor: "#2a2f36", rightOffset: 4 },
+    layout: { background: { color: "#ffffff" }, textColor: "#333", fontSize: 12 },
+    grid: { vertLines: { color: "#e3e3e3", style: LightweightCharts.LineStyle.Dotted },
+            horzLines: { color: "#e3e3e3", style: LightweightCharts.LineStyle.Dotted } },
+    rightPriceScale: { borderColor: "#c4c4c4", mode: LightweightCharts.PriceScaleMode.Logarithmic },
+    timeScale: { borderColor: "#c4c4c4", rightOffset: 4 },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
   });
   stockChart.priceScale("right").applyOptions({ scaleMargins: { top: 0.08, bottom: 0.26 } });
-  const candle = stockChart.addCandlestickSeries({
-    upColor: "#26a69a", downColor: "#ef5350", borderUpColor: "#26a69a",
-    borderDownColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350",
-  });
-  candle.setData(d.candles);
+  const MS_UP = "#1565c0", MS_DN = "#d81b60";
+  const candle = stockChart.addBarSeries({ thinBars: true, openVisible: false });
+  let _pc = null;
+  candle.setData(d.candles.map((b) => {
+    const color = (_pc == null || b.close >= _pc) ? MS_UP : MS_DN;
+    _pc = b.close;
+    return { ...b, color };
+  }));
   (d.mas || []).forEach((m) => {
     if (m.points && m.points.length) {
       const s = stockChart.addLineSeries({ color: m.color, lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false });
@@ -587,7 +593,7 @@ function renderStockChart(d) {
   if (d.channel && d.channel.points && d.channel.points.length === 2) {
     const conf = d.channel.confirmed;
     const s = stockChart.addLineSeries({
-      color: conf ? "#ff5252" : "rgba(255,82,82,.55)", lineWidth: 2,
+      color: conf ? "#d32f2f" : "rgba(211,47,47,.5)", lineWidth: 2,
       lineStyle: conf ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Dotted,
       priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false,
     });

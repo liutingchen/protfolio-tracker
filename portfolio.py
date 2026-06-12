@@ -44,20 +44,19 @@ def _align(ts: pd.Timestamp, index: pd.DatetimeIndex):
     return index[pos]
 
 
-# Moving-average sets per timeframe (MarketSurge style).
-#   weekly: 10- & 40-week SMA
-#   daily:  10/21 EMA + 50/150/200 SMA
+# Moving-average sets per timeframe, MarketSurge color mapping
+# (weekly: 红 10w / 黑 40w; daily: 紫 10d / 绿 21d / 红 50d / 黑 200d).
 _MA_SETS = {
     "weekly": [
-        {"key": "sma10", "label": "SMA(10)", "color": "#2962ff", "kind": "sma", "n": 10},
-        {"key": "sma40", "label": "SMA(40)", "color": "#ff9800", "kind": "sma", "n": 40},
+        {"key": "sma10", "label": "SMA(10)", "color": "#e53935", "kind": "sma", "n": 10},
+        {"key": "sma40", "label": "SMA(40)", "color": "#111111", "kind": "sma", "n": 40},
     ],
     "daily": [
-        {"key": "ema10", "label": "EMA(10)",  "color": "#2962ff", "kind": "ema", "n": 10},
-        {"key": "ema21", "label": "EMA(21)",  "color": "#e91e63", "kind": "ema", "n": 21},
-        {"key": "sma50", "label": "SMA(50)",  "color": "#ef5350", "kind": "sma", "n": 50},
-        {"key": "sma150", "label": "SMA(150)", "color": "#ab47bc", "kind": "sma", "n": 150},
-        {"key": "sma200", "label": "SMA(200)", "color": "#26a69a", "kind": "sma", "n": 200},
+        {"key": "ema10", "label": "EMA(10)",  "color": "#8e24aa", "kind": "ema", "n": 10},
+        {"key": "ema21", "label": "EMA(21)",  "color": "#2e7d32", "kind": "ema", "n": 21},
+        {"key": "sma50", "label": "SMA(50)",  "color": "#e53935", "kind": "sma", "n": 50},
+        {"key": "sma150", "label": "SMA(150)", "color": "#9e9e9e", "kind": "sma", "n": 150},
+        {"key": "sma200", "label": "SMA(200)", "color": "#111111", "kind": "sma", "n": 200},
     ],
 }
 
@@ -250,12 +249,12 @@ def compute_stock(ticker, uid, freq="weekly"):
         vol = float(r["volume"]) if pd.notna(r["volume"]) else None
         vpv = volpct_for(ts)
         vol_pct = float(vpv) if vpv is not None and pd.notna(vpv) else None
-        up = cl >= op
+        up = pd.isna(r["prev_close"]) or cl >= r["prev_close"]   # MarketSurge 配色按前收盘
         candles.append({"time": t, "open": _round(op), "high": _round(hi),
                         "low": _round(lo), "close": _round(cl)})
         if vol is not None:
             volume.append({"time": t, "value": vol,
-                           "color": "rgba(38,166,154,.5)" if up else "rgba(239,83,80,.5)"})
+                           "color": "rgba(21,101,192,.45)" if up else "rgba(216,27,96,.45)"})
         ma_vals = {spec["key"]: (_round(r[spec["key"]]) if pd.notna(r[spec["key"]]) else None)
                    for spec in ma_specs}
         bars.append({
@@ -283,7 +282,7 @@ def compute_stock(ticker, uid, freq="weekly"):
             markers.append({
                 "time": bar.strftime("%Y-%m-%d"),
                 "position": "belowBar" if is_buy else "aboveBar",
-                "color": "#26a69a" if is_buy else "#ef5350",
+                "color": "#2e7d32" if is_buy else "#c62828",   # 深色,白底图上可读
                 "shape": "arrowUp" if is_buy else "arrowDown",
                 "text": f"{'B' if is_buy else 'S'} {_round(t['shares'], 2)}@{_round(t['price'], 2)}",
             })

@@ -309,8 +309,9 @@ textarea { resize: vertical; }
 .stock-legend .chan-dot { background: repeating-linear-gradient(90deg, #ff5252 0 4px, transparent 4px 7px); }
 .stock-legend .chan-dot.tent { opacity: .55; }
 .stock-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
-.stock-legend .dot { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
-.stock-legend .lg-candle::before { content: ""; width: 9px; height: 12px; background: var(--green); border-radius: 1px; display: inline-block; margin-right: 6px; vertical-align: middle; }
+/* outline so the black 40-week MA dot stays visible on the dark legend strip */
+.stock-legend .dot { width: 12px; height: 3px; border-radius: 2px; display: inline-block; box-shadow: 0 0 0 1px rgba(255,255,255,.35); }
+.stock-legend .lg-candle::before { content: ""; width: 9px; height: 12px; background: linear-gradient(90deg, #1565c0 50%, #d81b60 50%); border-radius: 1px; display: inline-block; margin-right: 6px; vertical-align: middle; }
 #stockChart { width: 100%; height: 440px; position: relative; }
 .stock-databox { top: 8px; left: 8px; min-width: 210px; }
 .stock-databox .db-v .pos { color: var(--green); }
