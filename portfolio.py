@@ -78,8 +78,14 @@ def _upper_channel(bar_df):
     The line must rise >=10% over its span — a flat top is a flat base whose
     upside break is bullish, not a climax channel.
 
+    没有高点穿越也可以先把线画出来: when no 3-touch line exists yet, a 2-high
+    line is returned as tentative (confirmed=False) so the ceiling is visible
+    BEFORE the 3rd approach — provided nothing has pierced it and the 3rd
+    touch could still land inside the 5-month window.
+
     Returns None when no qualifying line exists, else the line endpoints
-    (extended to the latest bar), touch points, and break status vs that bar.
+    (extended to the latest bar), touch points, break status vs the latest
+    bar, and whether the line is confirmed (3 touches) or tentative (2).
     """
     df = bar_df.tail(80)        # 26w recency + 22w span: structure lives well inside 80 weeks
     if len(df) < 24:
@@ -94,6 +100,7 @@ def _upper_channel(bar_df):
     swings = [i for i in range(3, n - 3)
               if highs[i] == max(highs[i - 3:i + 4])]
 
+    # confirmed line: 3 collinear swing highs per the rules above
     best = None
     for x1, p1 in enumerate(swings):
         for x2, p2 in enumerate(swings[x1 + 1:], x1 + 1):
@@ -115,9 +122,39 @@ def _upper_channel(bar_df):
                     continue
                 if any(highs[i] > line(i) * 1.01 for i in range(p1, p3 + 1)):
                     continue
+                # a confirmed swing high above the extended line means the
+                # market already redrew this channel — the line is stale
+                if any(highs[i] > line(i) * 1.01 for i in swings if i > p3):
+                    continue
                 score = (times[p3], span)      # the channel of the CURRENT advance first
                 if best is None or score > best[0]:
                     best = (score, p1, slope, [p1, p2, p3])
+
+    confirmed = best is not None
+    if not confirmed:
+        # tentative line: only 2 highs so far ("先把线画出来") — drawable while
+        # nothing pierces it and a 3rd touch could still land inside the
+        # 5-month window (结构 p1->now <= 24 weeks). 2-point lines are
+        # unreliable per the course, so the payload marks them tentative.
+        for x1, p1 in enumerate(swings):
+            if wk(p1, n - 1) > 24:
+                continue
+            for p2 in swings[x1 + 1:]:
+                span = wk(p1, p2)
+                if not (8 <= span <= 22):
+                    continue
+                slope = (highs[p2] - highs[p1]) / span
+                # rise requirement scaled to the shorter 2-point baseline
+                if slope <= 0 or highs[p2] < highs[p1] * (1 + 0.10 * span / 18):
+                    continue
+                line = lambda i, a=p1, s=slope: highs[a] + s * wk(a, i)
+                if any(highs[i] > line(i) * 1.01 for i in range(p1, p2 + 1)):
+                    continue
+                if any(highs[i] > line(i) * 1.01 for i in swings if i > p2):
+                    continue
+                score = (times[p2], span)
+                if best is None or score > best[0]:
+                    best = (score, p1, slope, [p1, p2])
 
     if best is None:
         return None
@@ -133,6 +170,7 @@ def _upper_channel(bar_df):
         "touches": [{"time": times[i].strftime("%Y-%m-%d"), "value": _round(highs[i])}
                     for i in picked],
         "num_touches": len(picked),
+        "confirmed": confirmed,
         "span_weeks": int(round((times[picked[-1]] - times[picked[0]]).days / 7.0)),
         "line_last": _round(line_last),
         "broken_close": last_close > line_last,

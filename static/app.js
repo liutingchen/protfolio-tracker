@@ -531,12 +531,19 @@ function renderStockLegend(d) {
   if (stockFreq === "weekly") {
     const c = d.channel;
     if (!c) {
-      ch = `<span class="lg muted">上轨道线：未形成（需 ≥3 个间隔 ≥8 周的高点）</span>`;
-    } else {
+      ch = `<span class="lg muted">上轨道线：未形成（近 5 个月内无可连的高点结构）</span>`;
+    } else if (c.confirmed) {
       ch = `<span class="lg"><span class="dot chan-dot"></span>上轨道线 $${nf.format(c.line_last)} · ${c.num_touches} 个高点 / ${c.span_weeks} 周</span>` +
         (c.broken_close ? `<span class="lg neg"><b>⚠ 已突破上轨道线 — 进攻性卖出信号</b></span>`
           : c.broken_high ? `<span class="lg warn-amber">⚠ 本周盘中穿越上轨道线</span>`
           : `<span class="lg muted">距上轨道线 +${nf.format(c.dist_pct)}%</span>`);
+    } else {
+      // 2-point tentative line — drawn early so the ceiling is visible before
+      // the 3rd approach; course warns 2-point lines are unreliable
+      ch = `<span class="lg"><span class="dot chan-dot tent"></span>上轨道线（预备 · 待第 3 次触线确认）$${nf.format(c.line_last)} · ${c.span_weeks} 周</span>` +
+        (c.broken_close ? `<span class="lg warn-amber"><b>⚠ 收盘越过预备线（2 点线信号弱）</b></span>`
+          : c.broken_high ? `<span class="lg warn-amber">⚠ 本周盘中穿越预备线</span>`
+          : `<span class="lg muted">距预备线 +${nf.format(c.dist_pct)}%</span>`);
     }
   }
   lg.innerHTML = `<span class="lg lg-candle">${label}</span>` +
@@ -569,10 +576,13 @@ function renderStockChart(d) {
     }
   });
   // O'Neil upper channel line: dashed red through the fitted swing highs,
-  // extended to the latest bar (weekly only — backend sends channel:null on daily)
+  // extended to the latest bar (weekly only — backend sends channel:null on
+  // daily). Tentative 2-point lines render dotted + faded.
   if (d.channel && d.channel.points && d.channel.points.length === 2) {
+    const conf = d.channel.confirmed;
     const s = stockChart.addLineSeries({
-      color: "#ff5252", lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed,
+      color: conf ? "#ff5252" : "rgba(255,82,82,.55)", lineWidth: 2,
+      lineStyle: conf ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Dotted,
       priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false,
     });
     s.setData(d.channel.points);
