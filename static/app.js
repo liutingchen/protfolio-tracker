@@ -533,17 +533,23 @@ function renderStockLegend(d) {
     if (!c) {
       ch = `<span class="lg muted">上轨道线：未形成（近 5 个月内无可连的高点结构）</span>`;
     } else if (c.confirmed) {
+      // break stays flagged for 8 weeks (SCRB-style: spike above the line then
+      // pullback IS the climax event, not just a current-week condition)
+      const ago = c.broken_weeks_ago;
       ch = `<span class="lg"><span class="dot chan-dot"></span>上轨道线 $${nf.format(c.line_last)} · ${c.num_touches} 个高点 / ${c.span_weeks} 周</span>` +
-        (c.broken_close ? `<span class="lg neg"><b>⚠ 已突破上轨道线 — 进攻性卖出信号</b></span>`
-          : c.broken_high ? `<span class="lg warn-amber">⚠ 本周盘中穿越上轨道线</span>`
-          : `<span class="lg muted">距上轨道线 +${nf.format(c.dist_pct)}%</span>`);
+        (!c.broken_high ? `<span class="lg muted">距上轨道线 +${nf.format(c.dist_pct)}%</span>`
+          : ago > 0 ? `<span class="lg neg"><b>⚠ ${ago} 周前（${c.broken_time}）突破上轨道线 — climax 卖出信号已触发</b></span>`
+          : c.broken_close ? `<span class="lg neg"><b>⚠ 本周突破上轨道线 — 进攻性卖出信号</b></span>`
+          : `<span class="lg warn-amber">⚠ 本周盘中穿越上轨道线</span>`);
     } else {
       // 2-point tentative line — drawn early so the ceiling is visible before
       // the 3rd approach; course warns 2-point lines are unreliable
+      const ago = c.broken_weeks_ago;
       ch = `<span class="lg"><span class="dot chan-dot tent"></span>上轨道线（预备 · 待第 3 次触线确认）$${nf.format(c.line_last)} · ${c.span_weeks} 周</span>` +
-        (c.broken_close ? `<span class="lg warn-amber"><b>⚠ 收盘越过预备线（2 点线信号弱）</b></span>`
-          : c.broken_high ? `<span class="lg warn-amber">⚠ 本周盘中穿越预备线</span>`
-          : `<span class="lg muted">距预备线 +${nf.format(c.dist_pct)}%</span>`);
+        (!c.broken_high ? `<span class="lg muted">距预备线 +${nf.format(c.dist_pct)}%</span>`
+          : ago > 0 ? `<span class="lg warn-amber"><b>⚠ ${ago} 周前穿越预备线（2 点线信号弱）</b></span>`
+          : c.broken_close ? `<span class="lg warn-amber"><b>⚠ 收盘越过预备线（2 点线信号弱）</b></span>`
+          : `<span class="lg warn-amber">⚠ 本周盘中穿越预备线</span>`);
     }
   }
   lg.innerHTML = `<span class="lg lg-candle">${label}</span>` +

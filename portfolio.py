@@ -122,13 +122,16 @@ def _upper_channel(bar_df):
                     continue
                 if any(highs[i] > line(i) * 1.01 for i in range(p1, p3 + 1)):
                     continue
-                # a confirmed swing high above the extended line means the
-                # market already redrew this channel — the line is stale
-                if any(highs[i] > line(i) * 1.01 for i in swings if i > p3):
+                # bars after p3: a pierce within the last 8 weeks IS the climax
+                # break (SCRB-style — the spike above the line is the event to
+                # catch, even if price has since pulled back); an older pierce
+                # means the climax already played out — stale line, reject
+                pierce = [i for i in range(p3 + 1, n) if highs[i] > line(i)]
+                if pierce and wk(pierce[0], n - 1) > 8:
                     continue
                 score = (times[p3], span)      # the channel of the CURRENT advance first
                 if best is None or score > best[0]:
-                    best = (score, p1, slope, [p1, p2, p3])
+                    best = (score, p1, slope, [p1, p2, p3], pierce[0] if pierce else None)
 
     confirmed = best is not None
     if not confirmed:
@@ -150,20 +153,20 @@ def _upper_channel(bar_df):
                 line = lambda i, a=p1, s=slope: highs[a] + s * wk(a, i)
                 if any(highs[i] > line(i) * 1.01 for i in range(p1, p2 + 1)):
                     continue
-                if any(highs[i] > line(i) * 1.01 for i in swings if i > p2):
+                pierce = [i for i in range(p2 + 1, n) if highs[i] > line(i)]
+                if pierce and wk(pierce[0], n - 1) > 8:
                     continue
                 score = (times[p2], span)
                 if best is None or score > best[0]:
-                    best = (score, p1, slope, [p1, p2])
+                    best = (score, p1, slope, [p1, p2], pierce[0] if pierce else None)
 
     if best is None:
         return None
-    _, lo, slope, picked = best
+    _, lo, slope, picked, brk = best
     line = lambda i: highs[lo] + slope * wk(lo, i)
     last = n - 1
     line_last = line(last)
     last_close = float(df["close"].iloc[-1])
-    last_high = highs[last]
     return {
         "points": [{"time": times[lo].strftime("%Y-%m-%d"), "value": _round(highs[lo])},
                    {"time": times[last].strftime("%Y-%m-%d"), "value": _round(line_last)}],
@@ -173,8 +176,12 @@ def _upper_channel(bar_df):
         "confirmed": confirmed,
         "span_weeks": int(round((times[picked[-1]] - times[picked[0]]).days / 7.0)),
         "line_last": _round(line_last),
-        "broken_close": last_close > line_last,
-        "broken_high": last_high > line_last,
+        # break = the first bar whose high pokes above the line after the last
+        # anchor; it stays reported for 8 weeks even after price pulls back
+        "broken_high": brk is not None,
+        "broken_close": (float(df["close"].iloc[brk]) > line(brk)) if brk is not None else False,
+        "broken_time": times[brk].strftime("%Y-%m-%d") if brk is not None else None,
+        "broken_weeks_ago": int(round(wk(brk, last))) if brk is not None else None,
         "dist_pct": _round((line_last - last_close) / last_close * 100, 1),
     }
 
