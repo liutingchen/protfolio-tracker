@@ -65,19 +65,24 @@ _MA_SETS = {
 def _upper_channel(bar_df):
     """O'Neil upper channel line, fitted on the weekly chart.
 
-    Rules enforced (讲者课程标准): a rising straight line through >=3 swing
-    highs, adjacent connected highs >=8 weeks apart, first-to-last span >=18
-    weeks, and no weekly high pierces the line by >1% inside the fitted span.
-    A "touch" allows 2.5% slack — hand-drawn channels are eyeballed, and on
-    real charts a tighter tolerance rejects nearly every valid channel.
+    Rules enforced (O'Neil HTMM + 讲者课程标准): a rising straight line across
+    exactly 3 swing highs of the RECENT advance — adjacent highs >=8 weeks
+    apart, and the whole structure spanning MORE than 18 weeks but within
+    ~5 months (22 weeks). A line that needs far longer than 5 months to find
+    its 3 peaks (87-week INTC-style spans) is not a channel line. The last
+    peak must be <=26 weeks old: extending a stale line forward is
+    extrapolation, not a channel.
+
+    The middle high may sit 2.5% off the line (hand-drawn channels are
+    eyeballed); no weekly high inside the span may pierce the line by >1%.
     The line must rise >=10% over its span — a flat top is a flat base whose
     upside break is bullish, not a climax channel.
 
     Returns None when no qualifying line exists, else the line endpoints
     (extended to the latest bar), touch points, and break status vs that bar.
     """
-    df = bar_df.tail(156)                       # ~3 years of weeks bounds the fit
-    if len(df) < 20:
+    df = bar_df.tail(80)        # 26w recency + 22w span: structure lives well inside 80 weeks
+    if len(df) < 24:
         return None
     times = list(df.index)
     highs = [float(h) for h in df["high"]]
@@ -90,31 +95,29 @@ def _upper_channel(bar_df):
               if highs[i] == max(highs[i - 3:i + 4])]
 
     best = None
-    for ai, a in enumerate(swings):
-        for b in swings[ai + 1:]:
-            if wk(a, b) < 8:
+    for x1, p1 in enumerate(swings):
+        for x2, p2 in enumerate(swings[x1 + 1:], x1 + 1):
+            if wk(p1, p2) < 8:
                 continue
-            slope = (highs[b] - highs[a]) / wk(a, b)   # $ per week
-            if slope <= 0:
-                continue
-            line = lambda i: highs[a] + slope * wk(a, i)
-            touches = [i for i in swings if abs(highs[i] - line(i)) <= 0.025 * line(i)]
-            # count touches >=8 weeks apart (greedy left-to-right)
-            picked = []
-            for i in touches:
-                if not picked or wk(picked[-1], i) >= 8:
-                    picked.append(i)
-            if len(picked) < 3:
-                continue
-            lo, hi_ = picked[0], picked[-1]
-            span = wk(lo, hi_)
-            if span < 18 or line(hi_) < line(lo) * 1.10:
-                continue
-            if any(highs[i] > line(i) * 1.01 for i in range(lo, hi_ + 1)):
-                continue
-            score = (len(picked), span, times[hi_])
-            if best is None or score > best[0]:
-                best = (score, lo, slope, picked)
+            for p3 in swings[x2 + 1:]:
+                if wk(p2, p3) < 8:
+                    continue
+                span = wk(p1, p3)
+                if not (18 < span <= 22):
+                    continue
+                if wk(p3, n - 1) > 26:
+                    continue
+                slope = (highs[p3] - highs[p1]) / span     # $ per week
+                if slope <= 0 or highs[p3] < highs[p1] * 1.10:
+                    continue
+                line = lambda i, a=p1, s=slope: highs[a] + s * wk(a, i)
+                if abs(highs[p2] - line(p2)) > 0.025 * line(p2):
+                    continue
+                if any(highs[i] > line(i) * 1.01 for i in range(p1, p3 + 1)):
+                    continue
+                score = (times[p3], span)      # the channel of the CURRENT advance first
+                if best is None or score > best[0]:
+                    best = (score, p1, slope, [p1, p2, p3])
 
     if best is None:
         return None
