@@ -61,6 +61,18 @@ _MA_SETS = {
 }
 
 
+def _spx_proxy_closes(start, end):
+    """SPY daily closes (S&P 500 proxy) for the RS line. get_daily_closes
+    serves from cache and quietly refreshes within a small budget — a cold
+    cache costs one short fetch, a failure just means no RS line."""
+    try:
+        closes, _ = prices.get_daily_closes(["SPY"], start, end, budget=10)
+        s = closes.get("SPY")
+        return s if s is not None and len(s) else None
+    except Exception:
+        return None
+
+
 def _upper_channel(bar_df):
     """O'Neil upper channel line, fitted on the weekly chart.
 
@@ -270,6 +282,25 @@ def compute_stock(ticker, uid, freq="weekly"):
         "points": _series_to_points(bar_df[spec["key"]]),
     } for spec in ma_specs]
 
+    # RS line = close / S&P 500 (SPY proxy), on the same bar grid (MarketSurge
+    # plots it in the lower part of the price pane; scale is arbitrary)
+    rs = None
+    spx = _spx_proxy_closes(df.index.min().strftime("%Y-%m-%d"),
+                            df.index.max().strftime("%Y-%m-%d"))
+    if spx is not None:
+        b = spx.sort_index()
+        if freq == "weekly":
+            b = b.resample("W-FRI").last()
+        b = b.reindex(bar_df.index).ffill()
+        pts = _series_to_points((bar_df["close"] / b).where(b > 0), 5)
+        if pts:
+            rs = {"points": pts}
+
+    # volume moving average (MarketSurge red line: 10-week / 50-day)
+    vol_n = 10 if freq == "weekly" else 50
+    vol_ma = {"n": vol_n, "points": _series_to_points(
+        bar_df["volume"].rolling(vol_n, min_periods=vol_n).mean(), 0)}
+
     # the user's own trades on this ticker, snapped onto bars
     bar_index = pd.DatetimeIndex(bar_df.index)
     markers = []
@@ -293,7 +324,7 @@ def compute_stock(ticker, uid, freq="weekly"):
         "last": _round(float(df["close"].iloc[-1])),
         "asof": df.index.max().strftime("%Y-%m-%d"),
         "candles": candles, "volume": volume, "bars": bars,
-        "mas": mas, "markers": markers,
+        "mas": mas, "markers": markers, "rs": rs, "vol_ma": vol_ma,
         # O'Neil upper channel line — weekly only (日线噪音太多,规则只认周线)
         "channel": _upper_channel(bar_df) if freq == "weekly" else None,
     }

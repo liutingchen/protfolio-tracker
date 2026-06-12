@@ -552,9 +552,13 @@ function renderStockLegend(d) {
           : `<span class="lg warn-amber">⚠ 本周盘中穿越预备线</span>`);
     }
   }
+  const extras =
+    (d.rs ? `<span class="lg"><span class="dot" style="background:#3f51b5"></span>RS 线（vs S&P 500）</span>` : "") +
+    (d.vol_ma && d.vol_ma.points && d.vol_ma.points.length
+      ? `<span class="lg"><span class="dot" style="background:#e53935"></span>量均线（${d.vol_ma.n}${stockFreq === "weekly" ? "周" : "日"}）</span>` : "");
   lg.innerHTML = `<span class="lg lg-candle">${label}</span>` +
     (d.mas || []).map((m) =>
-      `<span class="lg"><span class="dot" style="background:${m.color}"></span>${m.label}</span>`).join("") + ch;
+      `<span class="lg"><span class="dot" style="background:${m.color}"></span>${m.label}</span>`).join("") + extras + ch;
 }
 
 function renderStockChart(d) {
@@ -603,6 +607,20 @@ function renderStockChart(d) {
     const v = stockChart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
     v.setData(d.volume);
     stockChart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  }
+  // MarketSurge red volume MA (10w / 50d) over the volume pane
+  if (d.vol_ma && d.vol_ma.points && d.vol_ma.points.length) {
+    const vm = stockChart.addLineSeries({ priceScaleId: "vol", color: "#e53935", lineWidth: 1,
+      priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
+    vm.setData(d.vol_ma.points);
+  }
+  // RS line (close / S&P 500) on a hidden overlay scale in the lower part of
+  // the price pane, MarketSurge-style — its absolute scale is meaningless
+  if (d.rs && d.rs.points && d.rs.points.length) {
+    const r = stockChart.addLineSeries({ priceScaleId: "rs", color: "#3f51b5", lineWidth: 2,
+      priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
+    r.setData(d.rs.points);
+    stockChart.priceScale("rs").applyOptions({ scaleMargins: { top: 0.56, bottom: 0.3 }, visible: false });
   }
   if (d.markers && d.markers.length) candle.setMarkers(d.markers);
   setupStockBox(host, d);
