@@ -129,9 +129,12 @@
         <h2 id="formTitle">添加交易</h2>
         <button type="button" id="importBtn" class="btn ghost small">⇪ 导入持仓</button>
       </div>
-      <p id="formHint" class="muted scope-hint" hidden>合并视图为只读。切换到某个具体组合即可添加 / 编辑交易。</p>
+      <p id="formHint" class="muted scope-hint" hidden>合并视图下交易会记入下方选择的组合；编辑 / 删除已有交易请切换到具体组合。</p>
       <form id="tradeForm" class="tradeform">
         <input type="hidden" id="tradeId" />
+        <label>记入组合
+          <select id="f_portfolio" title="这笔交易记入哪个组合"></select>
+        </label>
         <div class="row">
           <label>日期<input type="date" id="f_date" required /></label>
           <label>代码<input type="text" id="f_ticker" placeholder="AAPL" required autocomplete="off" /></label>

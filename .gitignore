@@ -11,3 +11,6 @@ data/
 # OS / editor
 .DS_Store
 *.log
+
+# Claude Code local tooling (machine-specific paths)
+.claude/

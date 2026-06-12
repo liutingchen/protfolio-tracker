@@ -559,16 +559,27 @@ def save_review_note():
 @app.post("/api/trades")
 @login_required
 def create_trade():
-    if _combined() is not None:
-        return jsonify({"error": "合并/分组视图下不能添加交易，请切换到具体组合。"}), 400
-    trade, err = _parse_trade(request.get_json(force=True, silent=True) or {})
+    """Add a trade. Optional `portfolio_id` chooses the target portfolio (must
+    be owned by the user) — this is what lets the merged views add trades
+    directly. Without it, falls back to the active portfolio (single view)."""
+    data = request.get_json(force=True, silent=True) or {}
+    trade, err = _parse_trade(data)
     if err:
         return jsonify({"error": err}), 400
-    active = db.get_active_portfolio_id(_uid())
-    if not db.get_portfolio(active, _uid()):
-        return jsonify({"error": "No active portfolio."}), 400
-    tid = db.add_trade(trade, active)
-    return jsonify({"id": tid, "trade": trade}), 201
+    pid = data.get("portfolio_id")
+    if pid is not None:
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return jsonify({"error": "组合 ID 无效。"}), 400
+    else:
+        if _combined() is not None:
+            return jsonify({"error": "请选择交易要记入的组合。"}), 400
+        pid = db.get_active_portfolio_id(_uid())
+    if not db.get_portfolio(pid, _uid()):
+        return jsonify({"error": "组合不存在。"}), 404
+    tid = db.add_trade(trade, pid)
+    return jsonify({"id": tid, "trade": trade, "portfolio_id": pid}), 201
 
 
 @app.post("/api/import-holdings")

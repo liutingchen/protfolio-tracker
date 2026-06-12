@@ -62,6 +62,82 @@ _MA_SETS = {
 }
 
 
+def _upper_channel(bar_df):
+    """O'Neil upper channel line, fitted on the weekly chart.
+
+    Rules enforced (讲者课程标准): a rising straight line through >=3 swing
+    highs, adjacent connected highs >=8 weeks apart, first-to-last span >=18
+    weeks, and no weekly high pierces the line by >1% inside the fitted span.
+    A "touch" allows 2.5% slack — hand-drawn channels are eyeballed, and on
+    real charts a tighter tolerance rejects nearly every valid channel.
+    The line must rise >=10% over its span — a flat top is a flat base whose
+    upside break is bullish, not a climax channel.
+
+    Returns None when no qualifying line exists, else the line endpoints
+    (extended to the latest bar), touch points, and break status vs that bar.
+    """
+    df = bar_df.tail(156)                       # ~3 years of weeks bounds the fit
+    if len(df) < 20:
+        return None
+    times = list(df.index)
+    highs = [float(h) for h in df["high"]]
+    n = len(df)
+    wk = lambda a, b: (times[b] - times[a]).days / 7.0
+
+    # swing high = the highest high of a +-3-week window (right side must exist,
+    # so the newest 3 bars can break the line but can't anchor it)
+    swings = [i for i in range(3, n - 3)
+              if highs[i] == max(highs[i - 3:i + 4])]
+
+    best = None
+    for ai, a in enumerate(swings):
+        for b in swings[ai + 1:]:
+            if wk(a, b) < 8:
+                continue
+            slope = (highs[b] - highs[a]) / wk(a, b)   # $ per week
+            if slope <= 0:
+                continue
+            line = lambda i: highs[a] + slope * wk(a, i)
+            touches = [i for i in swings if abs(highs[i] - line(i)) <= 0.025 * line(i)]
+            # count touches >=8 weeks apart (greedy left-to-right)
+            picked = []
+            for i in touches:
+                if not picked or wk(picked[-1], i) >= 8:
+                    picked.append(i)
+            if len(picked) < 3:
+                continue
+            lo, hi_ = picked[0], picked[-1]
+            span = wk(lo, hi_)
+            if span < 18 or line(hi_) < line(lo) * 1.10:
+                continue
+            if any(highs[i] > line(i) * 1.01 for i in range(lo, hi_ + 1)):
+                continue
+            score = (len(picked), span, times[hi_])
+            if best is None or score > best[0]:
+                best = (score, lo, slope, picked)
+
+    if best is None:
+        return None
+    _, lo, slope, picked = best
+    line = lambda i: highs[lo] + slope * wk(lo, i)
+    last = n - 1
+    line_last = line(last)
+    last_close = float(df["close"].iloc[-1])
+    last_high = highs[last]
+    return {
+        "points": [{"time": times[lo].strftime("%Y-%m-%d"), "value": _round(highs[lo])},
+                   {"time": times[last].strftime("%Y-%m-%d"), "value": _round(line_last)}],
+        "touches": [{"time": times[i].strftime("%Y-%m-%d"), "value": _round(highs[i])}
+                    for i in picked],
+        "num_touches": len(picked),
+        "span_weeks": int(round((times[picked[-1]] - times[picked[0]]).days / 7.0)),
+        "line_last": _round(line_last),
+        "broken_close": last_close > line_last,
+        "broken_high": last_high > line_last,
+        "dist_pct": _round((line_last - last_close) / last_close * 100, 1),
+    }
+
+
 def compute_stock(ticker, uid, freq="weekly"):
     """OHLCV chart for ONE stock at weekly or daily resolution + the timeframe's
     moving averages + volume + the user's own buy/sell markers. Each bar carries
@@ -171,6 +247,8 @@ def compute_stock(ticker, uid, freq="weekly"):
         "asof": df.index.max().strftime("%Y-%m-%d"),
         "candles": candles, "volume": volume, "bars": bars,
         "mas": mas, "markers": markers,
+        # O'Neil upper channel line — weekly only (日线噪音太多,规则只认周线)
+        "channel": _upper_channel(bar_df) if freq == "weekly" else None,
     }
 
 

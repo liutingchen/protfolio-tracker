@@ -73,7 +73,7 @@ async function load() {
   state.isAll = st.active_id === "all";
   state.isCombined = state.isAll || state.isGroup;   // merged/read-only view
   renderPortfolioSwitch();
-  setFormEnabled(!state.isCombined);
+  syncTradeForm();
   renderTradeLog(st.trades);
 
   if (chRes.status === "fulfilled") {
@@ -114,12 +114,35 @@ function renderPortfolioSwitch() {
   if (gDel) gDel.hidden = !state.isGroup;
 }
 
-function setFormEnabled(enabled) {
-  ["f_date", "f_ticker", "f_side", "f_shares", "f_price", "f_fees", "f_reason", "submitBtn"]
-    .forEach((id) => { const el = $(id); if (el) el.disabled = !enabled; });
-  $("formHint").hidden = enabled;
-  $("tradeForm").classList.toggle("disabled", !enabled);
-  $("importBtn").hidden = !enabled;   // import targets the active portfolio
+function syncTradeForm() {
+  // the trade form works in every view — the 记入组合 select picks the target.
+  // 导入持仓 still writes to the active portfolio, so it stays single-view only.
+  $("formHint").hidden = !state.isCombined;
+  $("importBtn").hidden = state.isCombined;
+  renderTradePortfolioSelect();
+}
+
+function renderTradePortfolioSelect() {
+  const sel = $("f_portfolio");
+  if (!sel) return;
+  const prev = +sel.value || null;
+  const opt = (p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`;
+  if (state.isGroup) {
+    // group view: members first, the rest under 其他组合
+    const g = (state.groups || []).find((x) => "group:" + x.id === state.activeId);
+    const ids = new Set(g ? g.portfolio_ids : []);
+    const inG = state.portfolios.filter((p) => ids.has(p.id));
+    const rest = state.portfolios.filter((p) => !ids.has(p.id));
+    sel.innerHTML = `<optgroup label="本分组">${inG.map(opt).join("")}</optgroup>` +
+      (rest.length ? `<optgroup label="其他组合">${rest.map(opt).join("")}</optgroup>` : "");
+  } else {
+    sel.innerHTML = state.portfolios.map(opt).join("");
+  }
+  // default: single view mirrors the viewed portfolio; combined views keep the
+  // user's last pick when still listed, else fall back to the first option
+  if (!state.isCombined) sel.value = String(state.activeId);
+  else if (prev && state.portfolios.some((p) => p.id === prev)) sel.value = String(prev);
+  if (!sel.value && sel.options.length) sel.selectedIndex = 0;
 }
 
 function syncToolbar(ch) {
@@ -503,9 +526,22 @@ async function loadStock() {
 function renderStockLegend(d) {
   const lg = $("stockLegend");
   const label = stockFreq === "weekly" ? "周K线" : "日K线";
+  // O'Neil upper channel line status (weekly only): broken = offensive sell
+  let ch = "";
+  if (stockFreq === "weekly") {
+    const c = d.channel;
+    if (!c) {
+      ch = `<span class="lg muted">上轨道线：未形成（需 ≥3 个间隔 ≥8 周的高点）</span>`;
+    } else {
+      ch = `<span class="lg"><span class="dot chan-dot"></span>上轨道线 $${nf.format(c.line_last)} · ${c.num_touches} 个高点 / ${c.span_weeks} 周</span>` +
+        (c.broken_close ? `<span class="lg neg"><b>⚠ 已突破上轨道线 — 进攻性卖出信号</b></span>`
+          : c.broken_high ? `<span class="lg warn-amber">⚠ 本周盘中穿越上轨道线</span>`
+          : `<span class="lg muted">距上轨道线 +${nf.format(c.dist_pct)}%</span>`);
+    }
+  }
   lg.innerHTML = `<span class="lg lg-candle">${label}</span>` +
     (d.mas || []).map((m) =>
-      `<span class="lg"><span class="dot" style="background:${m.color}"></span>${m.label}</span>`).join("");
+      `<span class="lg"><span class="dot" style="background:${m.color}"></span>${m.label}</span>`).join("") + ch;
 }
 
 function renderStockChart(d) {
@@ -532,6 +568,15 @@ function renderStockChart(d) {
       s.setData(m.points);
     }
   });
+  // O'Neil upper channel line: dashed red through the fitted swing highs,
+  // extended to the latest bar (weekly only — backend sends channel:null on daily)
+  if (d.channel && d.channel.points && d.channel.points.length === 2) {
+    const s = stockChart.addLineSeries({
+      color: "#ff5252", lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed,
+      priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false,
+    });
+    s.setData(d.channel.points);
+  }
   if (d.volume && d.volume.length) {
     const v = stockChart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
     v.setData(d.volume);
@@ -802,12 +847,15 @@ function readForm() {
     side: $("f_side").value, shares: $("f_shares").value,
     price: $("f_price").value, fees: $("f_fees").value || 0,
     reason: $("f_reason").value,
+    portfolio_id: +$("f_portfolio").value || undefined,
   };
 }
 function resetForm() {
   state.editingId = null;
   $("tradeForm").reset();
   $("f_date").value = new Date().toISOString().slice(0, 10);
+  $("f_portfolio").disabled = false;
+  renderTradePortfolioSelect();   // form.reset() jumps the select to option 0
   $("formTitle").textContent = "添加交易";
   $("submitBtn").textContent = "添加";
   $("cancelEdit").hidden = true;
@@ -817,6 +865,9 @@ window.editTrade = function (id) {
   const t = state.trades.find((x) => x.id === id);
   if (!t) return;
   state.editingId = id;
+  // editing keeps the trade in its portfolio — the select is just a display
+  if (t.portfolio_id) $("f_portfolio").value = String(t.portfolio_id);
+  $("f_portfolio").disabled = true;
   $("f_date").value = t.date; $("f_ticker").value = t.ticker;
   $("f_side").value = t.side; $("f_shares").value = t.shares;
   $("f_price").value = t.price; $("f_fees").value = t.fees || "";
@@ -841,7 +892,11 @@ function wire() {
     try {
       const body = readForm();
       if (state.editingId) await api("PUT", "/api/trades/" + state.editingId, body);
-      else await api("POST", "/api/trades", body);
+      else {
+        const j = await api("POST", "/api/trades", body);
+        const pf = state.portfolios.find((p) => p.id === j.portfolio_id);
+        showToast(pf ? `已添加到「${pf.name}」 ✓` : "交易已添加 ✓", true);
+      }
       resetForm();
       await load();
     } catch (ex) { err.textContent = ex.message; err.hidden = false; }
